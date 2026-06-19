@@ -1,0 +1,116 @@
+{% extends 'production/base.html' %}
+
+{% block title %}状态记录 - {{ equipment.equipment_name }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📝 录入设备状态 - {{ equipment.equipment_name }}</h2>
+
+<div class="card">
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">设备编号</div>
+            <div class="value">{{ equipment.equipment_code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">当前状态</div>
+            <div class="value">{{ equipment.get_current_status_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">额定温度</div>
+            <div class="value">{{ equipment.rated_temperature|default:"-" }} ℃</div>
+        </div>
+        <div class="info-item">
+            <div class="label">额定压力</div>
+            <div class="value">{{ equipment.rated_pressure|default:"-" }} MPa</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>记录时间 *</label>
+                <input type="datetime-local" name="record_time" required>
+            </div>
+            <div class="form-group">
+                <label>设备状态</label>
+                <select name="status">
+                    {% for value, label in EQUIPMENT_STATUS_CHOICES %}
+                    <option value="{{ value }}" {% if equipment.current_status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <h4 style="margin: 20px 0 10px 0; color: #2c3e50;">运行参数监测</h4>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>温度(℃)</label>
+                <input type="number" step="0.1" name="temperature" placeholder="如：65.5">
+            </div>
+            <div class="form-group">
+                <label>压力(MPa)</label>
+                <input type="number" step="0.01" name="pressure" placeholder="如：0.45">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>振动(mm/s)</label>
+                <input type="number" step="0.1" name="vibration" placeholder="如：2.5">
+            </div>
+            <div class="form-group">
+                <label>噪声(dB)</label>
+                <input type="number" step="0.1" name="noise" placeholder="如：75">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>流量(m³/h)</label>
+                <input type="number" step="0.1" name="flow_rate" placeholder="如：12.5">
+            </div>
+            <div class="form-group">
+                <label>电流(A)</label>
+                <input type="number" step="0.1" name="current" placeholder="如：25.3">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>转速(rpm)</label>
+                <input type="number" step="1" name="rpm" placeholder="如：1450">
+            </div>
+            <div class="form-group">
+                <label>功率(kW)</label>
+                <input type="number" step="0.1" name="power" placeholder="如：15.5">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>液位(%)</label>
+                <input type="number" step="0.1" name="liquid_level" placeholder="如：75" max="100" min="0">
+            </div>
+            <div class="form-group">
+                <label>运行时长(h)</label>
+                <input type="number" step="0.1" name="run_hours" placeholder="如：8.5">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息或异常描述"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">提交状态记录</button>
+            <a href="{% url 'production:equipment_detail' equipment.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

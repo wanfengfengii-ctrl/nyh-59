@@ -1,0 +1,147 @@
+{% extends 'production/base.html' %}
+
+{% block title %}故障停机 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 设备故障记录</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ unresolved_count }}</div>
+        <div class="stat-label">未解决故障</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ faults|length }}</div>
+        <div class="stat-label">故障总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ total_downtime }}h</div>
+        <div class="stat-label">停机总时长</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e67e22;">¥{{ total_loss }}</div>
+        <div class="stat-label">总损失</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:fault_record_list' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>设备</label>
+            <select name="equipment">
+                <option value="">全部设备</option>
+                {% for eq in equipments %}
+                <option value="{{ eq.pk }}" {% if equipment_filter == eq.pk|stringformat:"s" %}selected{% endif %}>{{ eq.equipment_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>故障等级</label>
+            <select name="level">
+                <option value="">全部等级</option>
+                {% for value, label in FAULT_LEVEL_CHOICES %}
+                <option value="{{ value }}" {% if level_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>故障状态</label>
+            <select name="status">
+                <option value="">全部状态</option>
+                {% for value, label in FAULT_STATUS_CHOICES %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>所属工序</label>
+            <select name="stage">
+                <option value="">全部工序</option>
+                {% for value, label in STAGE_CHOICES %}
+                <option value="{{ value }}" {% if stage_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:fault_record_list' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="actions-bar">
+    <a href="{% url 'production:equipment_list' %}" class="btn btn-success">➕ 选择设备上报故障</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>故障编号</th>
+                <th>设备</th>
+                <th>等级</th>
+                <th>工序</th>
+                <th>发生时间</th>
+                <th>停机时长</th>
+                <th>总损失</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fault in faults %}
+            <tr>
+                <td><strong>{{ fault.fault_code }}</strong></td>
+                <td>{{ fault.equipment.equipment_name }}</td>
+                <td>
+                    {% if fault.fault_level == 'critical' %}
+                    <span class="badge badge-danger">严重</span>
+                    {% elif fault.fault_level == 'major' %}
+                    <span class="badge badge-warning">重大</span>
+                    {% elif fault.fault_level == 'general' %}
+                    <span class="badge badge-info">一般</span>
+                    {% else %}
+                    <span class="badge badge-success">轻微</span>
+                    {% endif %}
+                </td>
+                <td>{{ fault.get_stage_type_display|default:"-" }}</td>
+                <td>{{ fault.occur_time|date:"Y-m-d H:i" }}</td>
+                <td>{{ fault.downtime_hours }}h</td>
+                <td>¥{{ fault.total_loss }}</td>
+                <td>
+                    {% if fault.fault_status == 'reported' %}
+                    <span class="badge badge-danger">已上报</span>
+                    {% elif fault.fault_status == 'diagnosing' %}
+                    <span class="badge badge-warning">诊断中</span>
+                    {% elif fault.fault_status == 'repairing' %}
+                    <span class="badge badge-info">维修中</span>
+                    {% elif fault.fault_status == 'resolved' %}
+                    <span class="badge badge-success">已解决</span>
+                    {% else %}
+                    <span class="badge badge-secondary">已关闭</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'production:fault_record_detail' fault.pk %}" class="btn btn-sm btn-primary">详情</a>
+                    {% if fault.fault_status != 'resolved' and fault.fault_status != 'closed' %}
+                    <a href="{% url 'production:fault_record_resolve' fault.pk %}" class="btn btn-sm btn-success">解决</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: #999; padding: 30px;">
+                    暂无故障记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

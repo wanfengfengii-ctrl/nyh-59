@@ -1,0 +1,56 @@
+{% extends 'production/base.html' %}
+
+{% block title %}完成维修 - {{ repair.repair_code }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">✅ 完成维修 - {{ repair.repair_code }}</h2>
+
+<div class="card">
+    <h3 class="card-title">维修信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">维修单号</div>
+            <div class="value">{{ repair.repair_code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">设备</div>
+            <div class="value">{{ repair.equipment.equipment_name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">维修类型</div>
+            <div class="value">{{ repair.get_repair_type_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">申请日期</div>
+            <div class="value">{{ repair.apply_date }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>验收人 *</label>
+                <input type="text" name="inspector" required placeholder="请输入验收人姓名">
+            </div>
+            <div class="form-group">
+                <label>验收日期 *</label>
+                <input type="date" name="inspection_date" value="{% now 'Y-m-d' %}" required>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>验收意见</label>
+            <textarea name="inspection_opinion" rows="4" placeholder="请输入验收意见"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-success" onclick="return confirm('确认完成维修并通过验收？设备状态将更新。')">确认完成维修</button>
+            <a href="{% url 'production:repair_record_list' %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -475,6 +475,21 @@
                 <li><a href="{% url 'production:material_statistics' %}" class="{% if 'statistics' in request.resolver_match.url_name %}active{% endif %}">📊 统计分析</a></li>
                 <li><a href="{% url 'production:material_stock_alert_list' %}" class="{% if 'stock_alert' in request.resolver_match.url_name %}active{% endif %}">🚨 库存预警</a></li>
                 <li style="border-top: 1px solid #34495e; margin-top: 10px; padding-top: 10px;">
+                    <strong style="color: #667eea; padding: 0 25px; display: block; margin-bottom: 5px;">设备维护与运行管理</strong>
+                </li>
+                <li><a href="{% url 'production:equipment_dashboard' %}" class="{% if request.resolver_match.url_name == 'equipment_dashboard' %}active{% endif %}">🏭 设备总览</a></li>
+                <li><a href="{% url 'production:equipment_list' %}" class="{% if request.resolver_match.url_name in 'equipment_list,equipment_detail,equipment_create,equipment_edit' %}active{% endif %}">📋 设备档案</a></li>
+                <li><a href="{% url 'production:equipment_status_monitor' %}" class="{% if 'status_monitor' in request.resolver_match.url_name or 'status_record' in request.resolver_match.url_name %}active{% endif %}">📡 运行监测</a></li>
+                <li><a href="{% url 'production:equipment_inspection_list' %}" class="{% if 'inspection' in request.resolver_match.url_name %}active{% endif %}">🔍 点检记录</a></li>
+                <li><a href="{% url 'production:maintenance_plan_list' %}" class="{% if 'maintenance_plan' in request.resolver_match.url_name %}active{% endif %}">📅 保养计划</a></li>
+                <li><a href="{% url 'production:maintenance_record_list' %}" class="{% if 'maintenance_record' in request.resolver_match.url_name %}active{% endif %}">🔧 保养记录</a></li>
+                <li><a href="{% url 'production:repair_record_list' %}" class="{% if 'repair' in request.resolver_match.url_name %}active{% endif %}">🛠️ 维修登记</a></li>
+                <li><a href="{% url 'production:fault_record_list' %}" class="{% if 'fault' in request.resolver_match.url_name %}active{% endif %}">⚠️ 故障停机</a></li>
+                <li><a href="{% url 'production:spare_part_list' %}" class="{% if 'spare_part' in request.resolver_match.url_name and 'replacement' not in request.resolver_match.url_name %}active{% endif %}">⚙️ 备件档案</a></li>
+                <li><a href="{% url 'production:spare_part_replacement_list' %}" class="{% if 'replacement' in request.resolver_match.url_name %}active{% endif %}">🔄 备件更换</a></li>
+                <li><a href="{% url 'production:equipment_statistics' %}" class="{% if request.resolver_match.url_name == 'equipment_statistics' or request.resolver_match.url_name == 'equipment_stats_calculate' %}active{% endif %}">📊 统计分析</a></li>
+                <li><a href="{% url 'production:equipment_production_impact' %}" class="{% if 'production_impact' in request.resolver_match.url_name %}active{% endif %}">📈 批次影响分析</a></li>
+                <li style="border-top: 1px solid #34495e; margin-top: 10px; padding-top: 10px;">
                     <strong style="color: #667eea; padding: 0 25px; display: block; margin-bottom: 5px;">成本核算与效益分析</strong>
                 </li>
                 <li><a href="{% url 'production:cost_dashboard' %}" class="{% if request.resolver_match.url_name == 'cost_dashboard' %}active{% endif %}">💰 成本总览</a></li>

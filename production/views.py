@@ -26,6 +26,15 @@ from .models import (
     BatchCostSummary, LossWarning, SourceCostStats,
     ENERGY_TYPE_CHOICES, OTHER_COST_CATEGORY_CHOICES,
     LOSS_WARNING_LEVEL_CHOICES, SALE_STATUS_CHOICES,
+    Equipment, EquipmentInspection, EquipmentStatusRecord,
+    FaultRecord, MaintenancePlan, MaintenanceRecord,
+    RepairRecord, SparePart, SparePartReplacement, EquipmentStats,
+    EQUIPMENT_STATUS_CHOICES, IMPORTANCE_LEVEL_CHOICES,
+    INSPECTION_TYPE_CHOICES, INSPECTION_RESULT_CHOICES,
+    RUN_STATUS_CHOICES, FAULT_LEVEL_CHOICES, FAULT_STATUS_CHOICES,
+    MAINTENANCE_TYPE_CHOICES, MAINTENANCE_PLAN_STATUS_CHOICES,
+    REPAIR_TYPE_CHOICES, REPAIR_STATUS_CHOICES,
+    SPARE_PART_TYPE_CHOICES, STATS_TYPE_CHOICES,
 )
 
 
@@ -4739,3 +4748,1397 @@ def source_cost_stats(request):
         'level_filter': level_filter,
     }
     return render(request, 'production/source_cost_stats.html', context)
+
+
+def generate_equipment_code():
+    today = date.today().strftime('%Y%m%d')
+    count = Equipment.objects.filter(equipment_code__startswith=f'EQ{today}').count() + 1
+    return f'EQ{today}{count:03d}'
+
+
+def generate_fault_code():
+    today = date.today().strftime('%Y%m%d')
+    count = FaultRecord.objects.filter(fault_code__startswith=f'FT{today}').count() + 1
+    return f'FT{today}{count:03d}'
+
+
+def generate_plan_code():
+    today = date.today().strftime('%Y%m%d')
+    count = MaintenancePlan.objects.filter(plan_code__startswith=f'MP{today}').count() + 1
+    return f'MP{today}{count:03d}'
+
+
+def generate_maintenance_record_code():
+    today = date.today().strftime('%Y%m%d')
+    count = MaintenanceRecord.objects.filter(record_code__startswith=f'MR{today}').count() + 1
+    return f'MR{today}{count:03d}'
+
+
+def generate_repair_code():
+    today = date.today().strftime('%Y%m%d')
+    count = RepairRecord.objects.filter(repair_code__startswith=f'RP{today}').count() + 1
+    return f'RP{today}{count:03d}'
+
+
+def generate_replacement_code():
+    today = date.today().strftime('%Y%m%d')
+    count = SparePartReplacement.objects.filter(replacement_code__startswith=f'SPR{today}').count() + 1
+    return f'SPR{today}{count:03d}'
+
+
+def equipment_dashboard(request):
+    total_equipment = Equipment.objects.count()
+    running_equipment = Equipment.objects.filter(status='running').count()
+    fault_equipment = Equipment.objects.filter(status='fault').count()
+    maintenance_equipment = Equipment.objects.filter(status='maintenance').count()
+
+    today = date.today()
+    thirty_days_ago = today - timedelta(days=30)
+
+    recent_faults = FaultRecord.objects.filter(occur_time__date__gte=thirty_days_ago).count()
+    total_downtime = FaultRecord.objects.filter(occur_time__date__gte=thirty_days_ago).aggregate(
+        total=Sum('downtime_hours'))['total'] or 0
+    total_repair_cost = RepairRecord.objects.filter(apply_date__gte=thirty_days_ago, status='completed').aggregate(
+        total=Sum('total_cost'))['total'] or 0
+
+    pending_maintenance = MaintenancePlan.objects.filter(status='pending').count()
+    overdue_maintenance = MaintenancePlan.objects.filter(
+        status='pending', plan_date__lt=today).count()
+
+    pending_repairs = RepairRecord.objects.filter(status__in=['pending', 'processing']).count()
+    low_stock_parts = SparePart.objects.filter(
+        is_active=True, current_stock__lte=F('safety_stock'), safety_stock__gt=0).count()
+
+    equipment_by_stage = Equipment.objects.values('stage_type').annotate(
+        count=Count('id')).order_by('stage_type')
+    stage_labels = [dict(STAGE_CHOICES).get(s['stage_type'], s['stage_type']) for s in equipment_by_stage]
+    stage_counts = [s['count'] for s in equipment_by_stage]
+
+    recent_fault_list = FaultRecord.objects.all()[:10]
+    recent_maintenance = MaintenanceRecord.objects.all()[:10]
+    pending_plan_list = MaintenancePlan.objects.filter(status='pending').order_by('plan_date')[:10]
+
+    status_distribution = Equipment.objects.values('status').annotate(count=Count('id'))
+    status_labels = [dict(EQUIPMENT_STATUS_CHOICES).get(s['status'], s['status']) for s in status_distribution]
+    status_counts = [s['count'] for s in status_distribution]
+
+    context = {
+        'total_equipment': total_equipment,
+        'running_equipment': running_equipment,
+        'fault_equipment': fault_equipment,
+        'maintenance_equipment': maintenance_equipment,
+        'recent_faults': recent_faults,
+        'total_downtime': round(total_downtime, 2),
+        'total_repair_cost': round(total_repair_cost, 2),
+        'pending_maintenance': pending_maintenance,
+        'overdue_maintenance': overdue_maintenance,
+        'pending_repairs': pending_repairs,
+        'low_stock_parts': low_stock_parts,
+        'stage_labels': stage_labels,
+        'stage_counts': stage_counts,
+        'status_labels': status_labels,
+        'status_counts': status_counts,
+        'recent_fault_list': recent_fault_list,
+        'recent_maintenance': recent_maintenance,
+        'pending_plan_list': pending_plan_list,
+    }
+    return render(request, 'production/equipment_dashboard.html', context)
+
+
+def equipment_list(request):
+    equipments = Equipment.objects.all()
+
+    stage_filter = request.GET.get('stage', '')
+    status_filter = request.GET.get('status', '')
+    importance_filter = request.GET.get('importance', '')
+    keyword = request.GET.get('keyword', '')
+
+    if stage_filter:
+        equipments = equipments.filter(stage_type=stage_filter)
+    if status_filter:
+        equipments = equipments.filter(status=status_filter)
+    if importance_filter:
+        equipments = equipments.filter(importance_level=importance_filter)
+    if keyword:
+        equipments = equipments.filter(
+            Q(equipment_code__icontains=keyword) |
+            Q(equipment_name__icontains=keyword) |
+            Q(equipment_type__icontains=keyword)
+        )
+
+    context = {
+        'equipments': equipments,
+        'stage_filter': stage_filter,
+        'status_filter': status_filter,
+        'importance_filter': importance_filter,
+        'keyword': keyword,
+        'STAGE_CHOICES': STAGE_CHOICES,
+        'EQUIPMENT_STATUS_CHOICES': EQUIPMENT_STATUS_CHOICES,
+        'IMPORTANCE_LEVEL_CHOICES': IMPORTANCE_LEVEL_CHOICES,
+    }
+    return render(request, 'production/equipment_list.html', context)
+
+
+def equipment_detail(request, pk):
+    equipment = get_object_or_404(Equipment, pk=pk)
+
+    today = date.today()
+    thirty_days_ago = today - timedelta(days=30)
+
+    inspections = equipment.inspection_records.all()[:20]
+    faults = equipment.fault_records.all()[:20]
+    maintenance_plans = equipment.maintenance_plans.all()[:20]
+    maintenance_records = equipment.maintenance_records.all()[:20]
+    repairs = equipment.repair_records.all()[:20]
+    status_records = equipment.status_records.all()[:50]
+    part_replacements = equipment.part_replacements.all()[:20]
+    stats = equipment.stats.filter(stats_type='monthly').order_by('-stats_date')[:6]
+
+    fault_count_30d = equipment.fault_records.filter(occur_time__date__gte=thirty_days_ago).count()
+    repair_cost_30d = equipment.repair_records.filter(
+        apply_date__gte=thirty_days_ago, status='completed').aggregate(
+        total=Sum('total_cost'))['total'] or 0
+    downtime_30d = equipment.fault_records.filter(occur_time__date__gte=thirty_days_ago).aggregate(
+        total=Sum('downtime_hours'))['total'] or 0
+    maintenance_count_30d = equipment.maintenance_records.filter(
+        start_time__date__gte=thirty_days_ago).count()
+
+    applicable_parts = equipment.applicable_parts.all()
+
+    if status_records.exists():
+        temp_data = [{'time': r.record_time.strftime('%H:%M'), 'value': r.temperature or 0} for r in status_records[:24]]
+        pressure_data = [{'time': r.record_time.strftime('%H:%M'), 'value': r.pressure or 0} for r in status_records[:24]]
+    else:
+        temp_data = []
+        pressure_data = []
+
+    context = {
+        'equipment': equipment,
+        'inspections': inspections,
+        'faults': faults,
+        'maintenance_plans': maintenance_plans,
+        'maintenance_records': maintenance_records,
+        'repairs': repairs,
+        'status_records': status_records,
+        'part_replacements': part_replacements,
+        'stats': stats,
+        'fault_count_30d': fault_count_30d,
+        'repair_cost_30d': round(repair_cost_30d, 2),
+        'downtime_30d': round(downtime_30d, 2),
+        'maintenance_count_30d': maintenance_count_30d,
+        'applicable_parts': applicable_parts,
+        'temp_data': temp_data,
+        'pressure_data': pressure_data,
+    }
+    return render(request, 'production/equipment_detail.html', context)
+
+
+def equipment_create(request):
+    if request.method == 'POST':
+        try:
+            equipment = Equipment.objects.create(
+                equipment_code=request.POST.get('equipment_code') or generate_equipment_code(),
+                equipment_name=request.POST.get('equipment_name', ''),
+                equipment_type=request.POST.get('equipment_type', ''),
+                stage_type=request.POST.get('stage_type', ''),
+                model_spec=request.POST.get('model_spec', ''),
+                manufacturer=request.POST.get('manufacturer', ''),
+                supplier=request.POST.get('supplier', ''),
+                purchase_date=request.POST.get('purchase_date') or None,
+                commission_date=request.POST.get('commission_date') or None,
+                original_value=float(request.POST.get('original_value', 0) or 0),
+                depreciation_years=int(request.POST.get('depreciation_years', 10) or 10),
+                location=request.POST.get('location', ''),
+                status=request.POST.get('status', 'standby'),
+                importance_level=request.POST.get('importance_level', 'general'),
+                rated_power=request.POST.get('rated_power') and float(request.POST['rated_power']) or None,
+                rated_capacity=request.POST.get('rated_capacity') and float(request.POST['rated_capacity']) or None,
+                responsible_person=request.POST.get('responsible_person', ''),
+                technical_params=request.POST.get('technical_params', ''),
+                operation_instructions=request.POST.get('operation_instructions', ''),
+                remarks=request.POST.get('remarks', ''),
+            )
+            equipment.full_clean()
+            messages.success(request, f'设备 {equipment.equipment_name} 创建成功')
+            return redirect('production:equipment_detail', pk=equipment.pk)
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'STAGE_CHOICES': STAGE_CHOICES,
+        'EQUIPMENT_STATUS_CHOICES': EQUIPMENT_STATUS_CHOICES,
+        'IMPORTANCE_LEVEL_CHOICES': IMPORTANCE_LEVEL_CHOICES,
+        'default_code': generate_equipment_code(),
+    }
+    return render(request, 'production/equipment_form.html', context)
+
+
+def equipment_edit(request, pk):
+    equipment = get_object_or_404(Equipment, pk=pk)
+
+    if request.method == 'POST':
+        try:
+            equipment.equipment_code = request.POST.get('equipment_code', equipment.equipment_code)
+            equipment.equipment_name = request.POST.get('equipment_name', equipment.equipment_name)
+            equipment.equipment_type = request.POST.get('equipment_type', equipment.equipment_type)
+            equipment.stage_type = request.POST.get('stage_type', equipment.stage_type)
+            equipment.model_spec = request.POST.get('model_spec', equipment.model_spec)
+            equipment.manufacturer = request.POST.get('manufacturer', equipment.manufacturer)
+            equipment.supplier = request.POST.get('supplier', equipment.supplier)
+            equipment.purchase_date = request.POST.get('purchase_date') or None
+            equipment.commission_date = request.POST.get('commission_date') or None
+            equipment.original_value = float(request.POST.get('original_value', equipment.original_value) or 0)
+            equipment.depreciation_years = int(request.POST.get('depreciation_years', equipment.depreciation_years) or 10)
+            equipment.location = request.POST.get('location', equipment.location)
+            equipment.status = request.POST.get('status', equipment.status)
+            equipment.importance_level = request.POST.get('importance_level', equipment.importance_level)
+            rated_power = request.POST.get('rated_power')
+            equipment.rated_power = float(rated_power) if rated_power else None
+            rated_capacity = request.POST.get('rated_capacity')
+            equipment.rated_capacity = float(rated_capacity) if rated_capacity else None
+            equipment.responsible_person = request.POST.get('responsible_person', equipment.responsible_person)
+            equipment.technical_params = request.POST.get('technical_params', equipment.technical_params)
+            equipment.operation_instructions = request.POST.get('operation_instructions', equipment.operation_instructions)
+            equipment.remarks = request.POST.get('remarks', equipment.remarks)
+            equipment.full_clean()
+            equipment.save()
+            messages.success(request, f'设备 {equipment.equipment_name} 更新成功')
+            return redirect('production:equipment_detail', pk=equipment.pk)
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'更新失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'STAGE_CHOICES': STAGE_CHOICES,
+        'EQUIPMENT_STATUS_CHOICES': EQUIPMENT_STATUS_CHOICES,
+        'IMPORTANCE_LEVEL_CHOICES': IMPORTANCE_LEVEL_CHOICES,
+    }
+    return render(request, 'production/equipment_form.html', context)
+
+
+def equipment_inspection_list(request):
+    inspections = EquipmentInspection.objects.all()
+
+    equipment_filter = request.GET.get('equipment', '')
+    type_filter = request.GET.get('type', '')
+    result_filter = request.GET.get('result', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if equipment_filter:
+        inspections = inspections.filter(equipment_id=equipment_filter)
+    if type_filter:
+        inspections = inspections.filter(inspection_type=type_filter)
+    if result_filter:
+        inspections = inspections.filter(result=result_filter)
+    if start_date:
+        inspections = inspections.filter(inspection_date__gte=start_date)
+    if end_date:
+        inspections = inspections.filter(inspection_date__lte=end_date)
+
+    equipments = Equipment.objects.all()
+
+    context = {
+        'inspections': inspections,
+        'equipments': equipments,
+        'equipment_filter': equipment_filter,
+        'type_filter': type_filter,
+        'result_filter': result_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'INSPECTION_TYPE_CHOICES': INSPECTION_TYPE_CHOICES,
+        'INSPECTION_RESULT_CHOICES': INSPECTION_RESULT_CHOICES,
+    }
+    return render(request, 'production/equipment_inspection_list.html', context)
+
+
+def equipment_inspection_create(request, equipment_id):
+    equipment = get_object_or_404(Equipment, pk=equipment_id)
+
+    if request.method == 'POST':
+        try:
+            temp_str = request.POST.get('temperature')
+            vib_str = request.POST.get('vibration')
+            noise_str = request.POST.get('noise')
+            press_str = request.POST.get('pressure')
+            flow_str = request.POST.get('flow_rate')
+            curr_str = request.POST.get('current')
+            volt_str = request.POST.get('voltage')
+
+            inspection = EquipmentInspection.objects.create(
+                equipment=equipment,
+                inspection_type=request.POST.get('inspection_type', 'daily'),
+                inspection_date=request.POST.get('inspection_date') or date.today(),
+                inspector=request.POST.get('inspector', ''),
+                result=request.POST.get('result', 'normal'),
+                temperature=float(temp_str) if temp_str else None,
+                vibration=float(vib_str) if vib_str else None,
+                noise=float(noise_str) if noise_str else None,
+                pressure=float(press_str) if press_str else None,
+                flow_rate=float(flow_str) if flow_str else None,
+                current=float(curr_str) if curr_str else None,
+                voltage=float(volt_str) if volt_str else None,
+                abnormal_description=request.POST.get('abnormal_description', ''),
+                handling_measures=request.POST.get('handling_measures', ''),
+                has_fault=request.POST.get('has_fault') == 'on',
+                remarks=request.POST.get('remarks', ''),
+            )
+            inspection.full_clean()
+            messages.success(request, '点检记录创建成功')
+            return redirect('production:equipment_detail', pk=equipment.pk)
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'INSPECTION_TYPE_CHOICES': INSPECTION_TYPE_CHOICES,
+        'INSPECTION_RESULT_CHOICES': INSPECTION_RESULT_CHOICES,
+    }
+    return render(request, 'production/equipment_inspection_form.html', context)
+
+
+def maintenance_plan_list(request):
+    plans = MaintenancePlan.objects.all()
+
+    equipment_filter = request.GET.get('equipment', '')
+    type_filter = request.GET.get('type', '')
+    status_filter = request.GET.get('status', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if equipment_filter:
+        plans = plans.filter(equipment_id=equipment_filter)
+    if type_filter:
+        plans = plans.filter(maintenance_type=type_filter)
+    if status_filter:
+        plans = plans.filter(status=status_filter)
+    if start_date:
+        plans = plans.filter(plan_date__gte=start_date)
+    if end_date:
+        plans = plans.filter(plan_date__lte=end_date)
+
+    today = date.today()
+    for plan in plans:
+        if plan.status == 'pending' and plan.plan_date < today:
+            plan.status = 'overdue'
+            plan.save()
+
+    equipments = Equipment.objects.all()
+
+    context = {
+        'plans': plans,
+        'equipments': equipments,
+        'equipment_filter': equipment_filter,
+        'type_filter': type_filter,
+        'status_filter': status_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'MAINTENANCE_TYPE_CHOICES': MAINTENANCE_TYPE_CHOICES,
+        'MAINTENANCE_PLAN_STATUS_CHOICES': MAINTENANCE_PLAN_STATUS_CHOICES,
+    }
+    return render(request, 'production/maintenance_plan_list.html', context)
+
+
+def maintenance_plan_create(request, equipment_id):
+    equipment = get_object_or_404(Equipment, pk=equipment_id)
+
+    if request.method == 'POST':
+        try:
+            plan = MaintenancePlan.objects.create(
+                equipment=equipment,
+                plan_code=request.POST.get('plan_code') or generate_plan_code(),
+                plan_name=request.POST.get('plan_name', ''),
+                maintenance_type=request.POST.get('maintenance_type', 'preventive'),
+                plan_date=request.POST.get('plan_date') or date.today(),
+                cycle_days=int(request.POST.get('cycle_days', 30) or 30),
+                content=request.POST.get('content', ''),
+                standard=request.POST.get('standard', ''),
+                estimated_hours=float(request.POST.get('estimated_hours', 0) or 0),
+                estimated_cost=float(request.POST.get('estimated_cost', 0) or 0),
+                responsible_person=request.POST.get('responsible_person', ''),
+                status='pending',
+                remarks=request.POST.get('remarks', ''),
+            )
+            plan.full_clean()
+            messages.success(request, f'保养计划 {plan.plan_name} 创建成功')
+            return redirect('production:maintenance_plan_list')
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'MAINTENANCE_TYPE_CHOICES': MAINTENANCE_TYPE_CHOICES,
+        'default_code': generate_plan_code(),
+    }
+    return render(request, 'production/maintenance_plan_form.html', context)
+
+
+def maintenance_plan_complete(request, pk):
+    plan = get_object_or_404(MaintenancePlan, pk=pk)
+
+    if request.method == 'POST':
+        try:
+            actual_date = request.POST.get('actual_date') or date.today()
+            actual_date_obj = datetime.strptime(actual_date, '%Y-%m-%d').date() if isinstance(actual_date, str) else actual_date
+            plan.status = 'completed'
+            plan.actual_date = actual_date_obj
+            plan.actual_hours = float(request.POST.get('actual_hours', 0) or 0)
+            plan.actual_cost = float(request.POST.get('actual_cost', 0) or 0)
+            plan.completion_description = request.POST.get('completion_description', '')
+            plan.full_clean()
+            plan.save()
+
+            if plan.cycle_days > 0:
+                next_date = actual_date_obj + timedelta(days=plan.cycle_days)
+                MaintenancePlan.objects.create(
+                    equipment=plan.equipment,
+                    plan_code=generate_plan_code(),
+                    plan_name=f'{plan.plan_name}(续)',
+                    maintenance_type=plan.maintenance_type,
+                    plan_date=next_date,
+                    cycle_days=plan.cycle_days,
+                    content=plan.content,
+                    standard=plan.standard,
+                    estimated_hours=plan.estimated_hours,
+                    estimated_cost=plan.estimated_cost,
+                    responsible_person=plan.responsible_person,
+                    status='pending',
+                    remarks=f'由计划 {plan.plan_code} 自动生成',
+                )
+
+            messages.success(request, '保养计划已完成')
+            return redirect('production:maintenance_plan_list')
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'操作失败: {e}')
+
+    context = {
+        'plan': plan,
+    }
+    return render(request, 'production/maintenance_plan_complete.html', context)
+
+
+def maintenance_record_list(request):
+    records = MaintenanceRecord.objects.all()
+
+    equipment_filter = request.GET.get('equipment', '')
+    type_filter = request.GET.get('type', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if equipment_filter:
+        records = records.filter(equipment_id=equipment_filter)
+    if type_filter:
+        records = records.filter(maintenance_type=type_filter)
+    if start_date:
+        records = records.filter(start_time__date__gte=start_date)
+    if end_date:
+        records = records.filter(start_time__date__lte=end_date)
+
+    equipments = Equipment.objects.all()
+    total_cost = records.aggregate(total=Sum('total_cost'))['total'] or 0
+
+    context = {
+        'records': records,
+        'equipments': equipments,
+        'equipment_filter': equipment_filter,
+        'type_filter': type_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'total_cost': round(total_cost, 2),
+        'MAINTENANCE_TYPE_CHOICES': MAINTENANCE_TYPE_CHOICES,
+    }
+    return render(request, 'production/maintenance_record_list.html', context)
+
+
+def maintenance_record_create(request, equipment_id):
+    equipment = get_object_or_404(Equipment, pk=equipment_id)
+    plans = MaintenancePlan.objects.filter(equipment=equipment, status='pending')
+
+    if request.method == 'POST':
+        try:
+            start_str = request.POST.get('start_time')
+            end_str = request.POST.get('end_time')
+            start_time = timezone.now()
+            if start_str:
+                start_time = datetime.strptime(start_str, '%Y-%m-%dT%H:%M')
+                start_time = timezone.make_aware(start_time)
+            end_time = None
+            if end_str:
+                end_time = datetime.strptime(end_str, '%Y-%m-%dT%H:%M')
+                end_time = timezone.make_aware(end_time)
+
+            plan_id = request.POST.get('plan')
+            plan = MaintenancePlan.objects.get(pk=plan_id) if plan_id else None
+
+            qr = request.POST.get('quality_rating')
+            record = MaintenanceRecord.objects.create(
+                equipment=equipment,
+                plan=plan,
+                record_code=request.POST.get('record_code') or generate_maintenance_record_code(),
+                maintenance_type=request.POST.get('maintenance_type', 'preventive'),
+                start_time=start_time,
+                end_time=end_time,
+                content=request.POST.get('content', ''),
+                result=request.POST.get('result', ''),
+                operator=request.POST.get('operator', ''),
+                work_hours=float(request.POST.get('work_hours', 0) or 0),
+                labor_cost=float(request.POST.get('labor_cost', 0) or 0),
+                parts_cost=float(request.POST.get('parts_cost', 0) or 0),
+                other_cost=float(request.POST.get('other_cost', 0) or 0),
+                has_replacement=request.POST.get('has_replacement') == 'on',
+                quality_rating=int(qr) if qr else None,
+                remarks=request.POST.get('remarks', ''),
+            )
+            record.full_clean()
+            messages.success(request, '保养记录创建成功')
+            return redirect('production:maintenance_record_list')
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'plans': plans,
+        'MAINTENANCE_TYPE_CHOICES': MAINTENANCE_TYPE_CHOICES,
+        'default_code': generate_maintenance_record_code(),
+    }
+    return render(request, 'production/maintenance_record_form.html', context)
+
+
+def repair_record_list(request):
+    repairs = RepairRecord.objects.all()
+
+    equipment_filter = request.GET.get('equipment', '')
+    type_filter = request.GET.get('type', '')
+    status_filter = request.GET.get('status', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if equipment_filter:
+        repairs = repairs.filter(equipment_id=equipment_filter)
+    if type_filter:
+        repairs = repairs.filter(repair_type=type_filter)
+    if status_filter:
+        repairs = repairs.filter(status=status_filter)
+    if start_date:
+        repairs = repairs.filter(apply_date__gte=start_date)
+    if end_date:
+        repairs = repairs.filter(apply_date__lte=end_date)
+
+    equipments = Equipment.objects.all()
+    total_cost = repairs.aggregate(total=Sum('total_cost'))['total'] or 0
+    pending_count = repairs.filter(status__in=['pending', 'processing']).count()
+
+    context = {
+        'repairs': repairs,
+        'equipments': equipments,
+        'equipment_filter': equipment_filter,
+        'type_filter': type_filter,
+        'status_filter': status_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'total_cost': round(total_cost, 2),
+        'pending_count': pending_count,
+        'REPAIR_TYPE_CHOICES': REPAIR_TYPE_CHOICES,
+        'REPAIR_STATUS_CHOICES': REPAIR_STATUS_CHOICES,
+    }
+    return render(request, 'production/repair_record_list.html', context)
+
+
+def repair_record_create(request, equipment_id):
+    equipment = get_object_or_404(Equipment, pk=equipment_id)
+    faults = FaultRecord.objects.filter(equipment=equipment, fault_status__in=['reported', 'diagnosing', 'repairing'])
+
+    if request.method == 'POST':
+        try:
+            start_str = request.POST.get('start_time')
+            end_str = request.POST.get('end_time')
+            insp_str = request.POST.get('inspection_date')
+            start_time = None
+            if start_str:
+                start_time = datetime.strptime(start_str, '%Y-%m-%dT%H:%M')
+                start_time = timezone.make_aware(start_time)
+            end_time = None
+            if end_str:
+                end_time = datetime.strptime(end_str, '%Y-%m-%dT%H:%M')
+                end_time = timezone.make_aware(end_time)
+            inspection_date = None
+            if insp_str:
+                inspection_date = datetime.strptime(insp_str, '%Y-%m-%d').date()
+
+            fault_id = request.POST.get('fault')
+            fault = FaultRecord.objects.get(pk=fault_id) if fault_id else None
+
+            repair = RepairRecord.objects.create(
+                equipment=equipment,
+                fault=fault,
+                repair_code=request.POST.get('repair_code') or generate_repair_code(),
+                repair_type=request.POST.get('repair_type', 'planned'),
+                repair_content=request.POST.get('repair_content', ''),
+                repair_method=request.POST.get('repair_method', ''),
+                applicant=request.POST.get('applicant', ''),
+                apply_date=request.POST.get('apply_date') or date.today(),
+                start_time=start_time,
+                end_time=end_time,
+                repair_person=request.POST.get('repair_person', ''),
+                work_hours=float(request.POST.get('work_hours', 0) or 0),
+                labor_cost=float(request.POST.get('labor_cost', 0) or 0),
+                parts_cost=float(request.POST.get('parts_cost', 0) or 0),
+                material_cost=float(request.POST.get('material_cost', 0) or 0),
+                other_cost=float(request.POST.get('other_cost', 0) or 0),
+                has_replacement=request.POST.get('has_replacement') == 'on',
+                replacement_details=request.POST.get('replacement_details', ''),
+                quality_check=request.POST.get('quality_check') == 'on',
+                inspector=request.POST.get('inspector', ''),
+                inspection_date=inspection_date,
+                inspection_opinion=request.POST.get('inspection_opinion', ''),
+                status=request.POST.get('status', 'pending'),
+                remarks=request.POST.get('remarks', ''),
+            )
+            repair.full_clean()
+            messages.success(request, '维修登记创建成功')
+            return redirect('production:repair_record_list')
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'faults': faults,
+        'REPAIR_TYPE_CHOICES': REPAIR_TYPE_CHOICES,
+        'REPAIR_STATUS_CHOICES': REPAIR_STATUS_CHOICES,
+        'default_code': generate_repair_code(),
+    }
+    return render(request, 'production/repair_record_form.html', context)
+
+
+def repair_record_complete(request, pk):
+    repair = get_object_or_404(RepairRecord, pk=pk)
+
+    if request.method == 'POST':
+        try:
+            repair.status = 'completed'
+            repair.quality_check = True
+            repair.inspector = request.POST.get('inspector', '')
+            insp_str = request.POST.get('inspection_date') or date.today().isoformat()
+            repair.inspection_date = datetime.strptime(insp_str, '%Y-%m-%d').date()
+            repair.inspection_opinion = request.POST.get('inspection_opinion', '')
+            repair.full_clean()
+            repair.save()
+
+            if repair.fault:
+                repair.fault.fault_status = 'resolved'
+                repair.fault.resolve_time = timezone.now()
+                repair.fault.save()
+
+            if repair.equipment.status == 'fault':
+                repair.equipment.status = 'standby'
+                repair.equipment.save()
+
+            messages.success(request, '维修已完成')
+            return redirect('production:repair_record_list')
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'操作失败: {e}')
+
+    context = {
+        'repair': repair,
+    }
+    return render(request, 'production/repair_record_complete.html', context)
+
+
+def fault_record_list(request):
+    faults = FaultRecord.objects.all()
+
+    equipment_filter = request.GET.get('equipment', '')
+    level_filter = request.GET.get('level', '')
+    status_filter = request.GET.get('status', '')
+    stage_filter = request.GET.get('stage', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if equipment_filter:
+        faults = faults.filter(equipment_id=equipment_filter)
+    if level_filter:
+        faults = faults.filter(fault_level=level_filter)
+    if status_filter:
+        faults = faults.filter(fault_status=status_filter)
+    if stage_filter:
+        faults = faults.filter(stage_type=stage_filter)
+    if start_date:
+        faults = faults.filter(occur_time__date__gte=start_date)
+    if end_date:
+        faults = faults.filter(occur_time__date__lte=end_date)
+
+    equipments = Equipment.objects.all()
+    total_downtime = faults.aggregate(total=Sum('downtime_hours'))['total'] or 0
+    total_loss = faults.aggregate(total=Sum('total_loss'))['total'] or 0
+    unresolved_count = faults.exclude(fault_status__in=['resolved', 'closed']).count()
+
+    context = {
+        'faults': faults,
+        'equipments': equipments,
+        'equipment_filter': equipment_filter,
+        'level_filter': level_filter,
+        'status_filter': status_filter,
+        'stage_filter': stage_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'total_downtime': round(total_downtime, 2),
+        'total_loss': round(total_loss, 2),
+        'unresolved_count': unresolved_count,
+        'FAULT_LEVEL_CHOICES': FAULT_LEVEL_CHOICES,
+        'FAULT_STATUS_CHOICES': FAULT_STATUS_CHOICES,
+        'STAGE_CHOICES': STAGE_CHOICES,
+    }
+    return render(request, 'production/fault_record_list.html', context)
+
+
+def fault_record_detail(request, pk):
+    fault = get_object_or_404(FaultRecord, pk=pk)
+    related_repairs = fault.repairs.all()
+
+    context = {
+        'fault': fault,
+        'related_repairs': related_repairs,
+        'FAULT_LEVEL_CHOICES': FAULT_LEVEL_CHOICES,
+        'FAULT_STATUS_CHOICES': FAULT_STATUS_CHOICES,
+    }
+    return render(request, 'production/fault_record_detail.html', context)
+
+
+def fault_record_create(request, equipment_id):
+    equipment = get_object_or_404(Equipment, pk=equipment_id)
+    batches = RawMaterialBatch.objects.all()[:50]
+
+    if request.method == 'POST':
+        try:
+            occur_str = request.POST.get('occur_time')
+            resolve_str = request.POST.get('resolve_time')
+            occur_time = timezone.now()
+            if occur_str:
+                occur_time = datetime.strptime(occur_str, '%Y-%m-%dT%H:%M')
+                occur_time = timezone.make_aware(occur_time)
+            resolve_time = None
+            if resolve_str:
+                resolve_time = datetime.strptime(resolve_str, '%Y-%m-%dT%H:%M')
+                resolve_time = timezone.make_aware(resolve_time)
+
+            fault = FaultRecord.objects.create(
+                equipment=equipment,
+                fault_code=request.POST.get('fault_code') or generate_fault_code(),
+                fault_level=request.POST.get('fault_level', 'general'),
+                fault_status=request.POST.get('fault_status', 'reported'),
+                stage_type=request.POST.get('stage_type', ''),
+                occur_time=occur_time,
+                discovery_person=request.POST.get('discovery_person', ''),
+                fault_phenomenon=request.POST.get('fault_phenomenon', ''),
+                fault_cause=request.POST.get('fault_cause', ''),
+                fault_location=request.POST.get('fault_location', ''),
+                impact_description=request.POST.get('impact_description', ''),
+                is_production_impacted=request.POST.get('is_production_impacted') == 'on',
+                resolve_time=resolve_time,
+                resolver=request.POST.get('resolver', ''),
+                handling_measures=request.POST.get('handling_measures', ''),
+                prevention_measures=request.POST.get('prevention_measures', ''),
+                downtime_hours=float(request.POST.get('downtime_hours', 0) or 0),
+                repair_cost=float(request.POST.get('repair_cost', 0) or 0),
+                production_loss=float(request.POST.get('production_loss', 0) or 0),
+                remarks=request.POST.get('remarks', ''),
+            )
+
+            batch_ids = request.POST.getlist('affected_batches')
+            if batch_ids:
+                fault.affected_batches.set(batch_ids)
+
+            fault.full_clean()
+
+            if fault.fault_status in ['reported', 'diagnosing', 'repairing']:
+                equipment.status = 'fault'
+                equipment.save()
+
+            messages.success(request, f'故障记录 {fault.fault_code} 创建成功')
+            return redirect('production:fault_record_detail', pk=fault.pk)
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'batches': batches,
+        'FAULT_LEVEL_CHOICES': FAULT_LEVEL_CHOICES,
+        'FAULT_STATUS_CHOICES': FAULT_STATUS_CHOICES,
+        'STAGE_CHOICES': STAGE_CHOICES,
+        'default_code': generate_fault_code(),
+    }
+    return render(request, 'production/fault_record_form.html', context)
+
+
+def fault_record_resolve(request, pk):
+    fault = get_object_or_404(FaultRecord, pk=pk)
+
+    if request.method == 'POST':
+        try:
+            fault.fault_status = 'resolved'
+            resolve_str = request.POST.get('resolve_time')
+            if resolve_str:
+                fault.resolve_time = datetime.strptime(resolve_str, '%Y-%m-%dT%H:%M')
+                fault.resolve_time = timezone.make_aware(fault.resolve_time)
+            else:
+                fault.resolve_time = timezone.now()
+            fault.resolver = request.POST.get('resolver', '')
+            fault.handling_measures = request.POST.get('handling_measures', '')
+            fault.prevention_measures = request.POST.get('prevention_measures', '')
+            fault.downtime_hours = float(request.POST.get('downtime_hours', fault.downtime_hours) or 0)
+            fault.repair_cost = float(request.POST.get('repair_cost', fault.repair_cost) or 0)
+            fault.production_loss = float(request.POST.get('production_loss', fault.production_loss) or 0)
+            fault.full_clean()
+            fault.save()
+
+            if fault.equipment.status == 'fault':
+                fault.equipment.status = 'standby'
+                fault.equipment.save()
+
+            messages.success(request, '故障已解决')
+            return redirect('production:fault_record_detail', pk=fault.pk)
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'操作失败: {e}')
+
+    context = {
+        'fault': fault,
+    }
+    return render(request, 'production/fault_record_resolve.html', context)
+
+
+def spare_part_list(request):
+    parts = SparePart.objects.filter(is_active=True)
+
+    type_filter = request.GET.get('type', '')
+    stock_filter = request.GET.get('stock', '')
+    keyword = request.GET.get('keyword', '')
+
+    if type_filter:
+        parts = parts.filter(part_type=type_filter)
+    if stock_filter == 'low':
+        parts = parts.filter(current_stock__lte=F('safety_stock'), safety_stock__gt=0)
+    elif stock_filter == 'out':
+        parts = parts.filter(current_stock__lte=0)
+    elif stock_filter == 'over':
+        parts = parts.filter(current_stock__gte=F('max_stock'), max_stock__gt=0)
+    if keyword:
+        parts = parts.filter(
+            Q(part_code__icontains=keyword) |
+            Q(part_name__icontains=keyword) |
+            Q(specification__icontains=keyword)
+        )
+
+    total_value = parts.aggregate(total=Sum(F('current_stock') * F('unit_price')))['total'] or 0
+    low_stock_count = SparePart.objects.filter(
+        is_active=True, current_stock__lte=F('safety_stock'), safety_stock__gt=0).count()
+    out_of_stock_count = SparePart.objects.filter(is_active=True, current_stock__lte=0).count()
+
+    context = {
+        'parts': parts,
+        'type_filter': type_filter,
+        'stock_filter': stock_filter,
+        'keyword': keyword,
+        'total_value': round(total_value, 2),
+        'low_stock_count': low_stock_count,
+        'out_of_stock_count': out_of_stock_count,
+        'SPARE_PART_TYPE_CHOICES': SPARE_PART_TYPE_CHOICES,
+    }
+    return render(request, 'production/spare_part_list.html', context)
+
+
+def spare_part_detail(request, pk):
+    part = get_object_or_404(SparePart, pk=pk)
+    replacements = part.replacements.all()[:50]
+    applicable_equipments = part.applicable_equipment.all()
+
+    context = {
+        'part': part,
+        'replacements': replacements,
+        'applicable_equipments': applicable_equipments,
+    }
+    return render(request, 'production/spare_part_detail.html', context)
+
+
+def spare_part_create(request):
+    equipments = Equipment.objects.all()
+
+    if request.method == 'POST':
+        try:
+            part = SparePart.objects.create(
+                part_code=request.POST.get('part_code', ''),
+                part_name=request.POST.get('part_name', ''),
+                part_type=request.POST.get('part_type', 'mechanical'),
+                specification=request.POST.get('specification', ''),
+                unit=request.POST.get('unit', '个'),
+                unit_price=float(request.POST.get('unit_price', 0) or 0),
+                current_stock=float(request.POST.get('current_stock', 0) or 0),
+                safety_stock=float(request.POST.get('safety_stock', 0) or 0),
+                max_stock=float(request.POST.get('max_stock', 0) or 0),
+                supplier=request.POST.get('supplier', ''),
+                manufacturer=request.POST.get('manufacturer', ''),
+                location=request.POST.get('location', ''),
+                is_active=request.POST.get('is_active') != 'off',
+                remarks=request.POST.get('remarks', ''),
+            )
+            eq_ids = request.POST.getlist('applicable_equipment')
+            if eq_ids:
+                part.applicable_equipment.set(eq_ids)
+            part.full_clean()
+            messages.success(request, f'备件 {part.part_name} 创建成功')
+            return redirect('production:spare_part_detail', pk=part.pk)
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipments': equipments,
+        'SPARE_PART_TYPE_CHOICES': SPARE_PART_TYPE_CHOICES,
+    }
+    return render(request, 'production/spare_part_form.html', context)
+
+
+def spare_part_edit(request, pk):
+    part = get_object_or_404(SparePart, pk=pk)
+    equipments = Equipment.objects.all()
+
+    if request.method == 'POST':
+        try:
+            part.part_code = request.POST.get('part_code', part.part_code)
+            part.part_name = request.POST.get('part_name', part.part_name)
+            part.part_type = request.POST.get('part_type', part.part_type)
+            part.specification = request.POST.get('specification', part.specification)
+            part.unit = request.POST.get('unit', part.unit)
+            part.unit_price = float(request.POST.get('unit_price', part.unit_price) or 0)
+            part.current_stock = float(request.POST.get('current_stock', part.current_stock) or 0)
+            part.safety_stock = float(request.POST.get('safety_stock', part.safety_stock) or 0)
+            part.max_stock = float(request.POST.get('max_stock', part.max_stock) or 0)
+            part.supplier = request.POST.get('supplier', part.supplier)
+            part.manufacturer = request.POST.get('manufacturer', part.manufacturer)
+            part.location = request.POST.get('location', part.location)
+            part.is_active = request.POST.get('is_active') == 'on'
+            part.remarks = request.POST.get('remarks', part.remarks)
+            eq_ids = request.POST.getlist('applicable_equipment')
+            part.applicable_equipment.set(eq_ids)
+            part.full_clean()
+            part.save()
+            messages.success(request, f'备件 {part.part_name} 更新成功')
+            return redirect('production:spare_part_detail', pk=part.pk)
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'更新失败: {e}')
+
+    context = {
+        'part': part,
+        'equipments': equipments,
+        'SPARE_PART_TYPE_CHOICES': SPARE_PART_TYPE_CHOICES,
+    }
+    return render(request, 'production/spare_part_form.html', context)
+
+
+def spare_part_replacement_list(request):
+    replacements = SparePartReplacement.objects.all()
+
+    equipment_filter = request.GET.get('equipment', '')
+    part_filter = request.GET.get('part', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if equipment_filter:
+        replacements = replacements.filter(equipment_id=equipment_filter)
+    if part_filter:
+        replacements = replacements.filter(spare_part_id=part_filter)
+    if start_date:
+        replacements = replacements.filter(replacement_date__gte=start_date)
+    if end_date:
+        replacements = replacements.filter(replacement_date__lte=end_date)
+
+    equipments = Equipment.objects.all()
+    parts = SparePart.objects.filter(is_active=True)
+    total_cost = replacements.aggregate(total=Sum('total_cost'))['total'] or 0
+
+    context = {
+        'replacements': replacements,
+        'equipments': equipments,
+        'parts': parts,
+        'equipment_filter': equipment_filter,
+        'part_filter': part_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'total_cost': round(total_cost, 2),
+    }
+    return render(request, 'production/spare_part_replacement_list.html', context)
+
+
+def spare_part_replacement_create(request, equipment_id):
+    equipment = get_object_or_404(Equipment, pk=equipment_id)
+    parts = SparePart.objects.filter(is_active=True)
+    maintenance_records = MaintenanceRecord.objects.filter(equipment=equipment)[:20]
+    repair_records = RepairRecord.objects.filter(equipment=equipment)[:20]
+
+    if request.method == 'POST':
+        try:
+            part_id = request.POST.get('spare_part')
+            part = SparePart.objects.get(pk=part_id)
+            mr_id = request.POST.get('maintenance_record')
+            rr_id = request.POST.get('repair_record')
+            qty = float(request.POST.get('quantity', 1) or 1)
+            up = float(request.POST.get('unit_price', part.unit_price) or part.unit_price)
+
+            if part.current_stock < qty:
+                raise ValidationError(f'库存不足，当前库存: {part.current_stock} {part.unit}')
+
+            replacement = SparePartReplacement.objects.create(
+                equipment=equipment,
+                spare_part=part,
+                maintenance_record=MaintenanceRecord.objects.get(pk=mr_id) if mr_id else None,
+                repair_record=RepairRecord.objects.get(pk=rr_id) if rr_id else None,
+                replacement_code=request.POST.get('replacement_code') or generate_replacement_code(),
+                replacement_date=request.POST.get('replacement_date') or date.today(),
+                quantity=qty,
+                unit_price=up,
+                reason=request.POST.get('reason', ''),
+                old_part_status=request.POST.get('old_part_status', ''),
+                old_part_disposal=request.POST.get('old_part_disposal', ''),
+                operator=request.POST.get('operator', ''),
+                remarks=request.POST.get('remarks', ''),
+            )
+            replacement.full_clean()
+
+            part.current_stock = round(part.current_stock - qty, 2)
+            part.save()
+
+            messages.success(request, '备件更换记录创建成功')
+            return redirect('production:spare_part_replacement_list')
+        except (ValidationError, ValueError, SparePart.DoesNotExist) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'parts': parts,
+        'maintenance_records': maintenance_records,
+        'repair_records': repair_records,
+        'default_code': generate_replacement_code(),
+    }
+    return render(request, 'production/spare_part_replacement_form.html', context)
+
+
+def equipment_status_monitor(request):
+    equipments = Equipment.objects.all()
+
+    stage_filter = request.GET.get('stage', '')
+    status_filter = request.GET.get('status', '')
+
+    if stage_filter:
+        equipments = equipments.filter(stage_type=stage_filter)
+    if status_filter:
+        equipments = equipments.filter(status=status_filter)
+
+    running_count = equipments.filter(status='running').count()
+    fault_count = equipments.filter(status='fault').count()
+    maintenance_count = equipments.filter(status='maintenance').count()
+    standby_count = equipments.filter(status='standby').count()
+
+    status_data = []
+    for eq in equipments:
+        latest_record = eq.status_records.first()
+        status_data.append({
+            'equipment': eq,
+            'latest_record': latest_record,
+        })
+
+    alarm_records = EquipmentStatusRecord.objects.filter(
+        is_alarm=True).order_by('-record_time')[:20]
+
+    context = {
+        'status_data': status_data,
+        'running_count': running_count,
+        'fault_count': fault_count,
+        'maintenance_count': maintenance_count,
+        'standby_count': standby_count,
+        'stage_filter': stage_filter,
+        'status_filter': status_filter,
+        'alarm_records': alarm_records,
+        'STAGE_CHOICES': STAGE_CHOICES,
+        'EQUIPMENT_STATUS_CHOICES': EQUIPMENT_STATUS_CHOICES,
+    }
+    return render(request, 'production/equipment_status_monitor.html', context)
+
+
+def equipment_status_record_create(request, equipment_id):
+    equipment = get_object_or_404(Equipment, pk=equipment_id)
+    batches = RawMaterialBatch.objects.all()[:50]
+
+    if request.method == 'POST':
+        try:
+            batch_id = request.POST.get('batch')
+            record = EquipmentStatusRecord.objects.create(
+                equipment=equipment,
+                batch=RawMaterialBatch.objects.get(pk=batch_id) if batch_id else None,
+                record_time=timezone.now(),
+                run_status=request.POST.get('run_status', 'normal'),
+                is_running=request.POST.get('is_running') == 'on',
+                output_value=request.POST.get('output_value') and float(request.POST['output_value']) or None,
+                temperature=request.POST.get('temperature') and float(request.POST['temperature']) or None,
+                pressure=request.POST.get('pressure') and float(request.POST['pressure']) or None,
+                vibration=request.POST.get('vibration') and float(request.POST['vibration']) or None,
+                current=request.POST.get('current') and float(request.POST['current']) or None,
+                voltage=request.POST.get('voltage') and float(request.POST['voltage']) or None,
+                power=request.POST.get('power') and float(request.POST['power']) or None,
+                rpm=request.POST.get('rpm') and float(request.POST['rpm']) or None,
+                flow_rate=request.POST.get('flow_rate') and float(request.POST['flow_rate']) or None,
+                liquid_level=request.POST.get('liquid_level') and float(request.POST['liquid_level']) or None,
+                alarm_message=request.POST.get('alarm_message', ''),
+                is_alarm=request.POST.get('is_alarm') == 'on',
+                stage_type=request.POST.get('stage_type') or None,
+                operator=request.POST.get('operator', ''),
+                remarks=request.POST.get('remarks', ''),
+            )
+            record.full_clean()
+            messages.success(request, '状态记录创建成功')
+            return redirect('production:equipment_status_monitor')
+        except (ValidationError, ValueError) as e:
+            messages.error(request, f'创建失败: {e}')
+
+    context = {
+        'equipment': equipment,
+        'batches': batches,
+        'RUN_STATUS_CHOICES': RUN_STATUS_CHOICES,
+        'STAGE_CHOICES': STAGE_CHOICES,
+    }
+    return render(request, 'production/equipment_status_record_form.html', context)
+
+
+def equipment_statistics(request):
+    today = date.today()
+    default_start = (today - timedelta(days=30)).isoformat()
+    default_end = today.isoformat()
+
+    start_date_str = request.GET.get('start_date', default_start)
+    end_date_str = request.GET.get('end_date', default_end)
+    equipment_filter = request.GET.get('equipment', '')
+    stage_filter = request.GET.get('stage', '')
+    stats_type = request.GET.get('stats_type', 'daily')
+
+    start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+
+    equipments = Equipment.objects.all()
+    if equipment_filter:
+        equipments = equipments.filter(pk=equipment_filter)
+    if stage_filter:
+        equipments = equipments.filter(stage_type=stage_filter)
+
+    faults = FaultRecord.objects.filter(occur_time__date__gte=start_date, occur_time__date__lte=end_date)
+    repairs = RepairRecord.objects.filter(apply_date__gte=start_date, apply_date__lte=end_date, status='completed')
+    maintenances = MaintenanceRecord.objects.filter(start_time__date__gte=start_date, start_time__date__lte=end_date)
+    inspections = EquipmentInspection.objects.filter(inspection_date__gte=start_date, inspection_date__lte=end_date)
+
+    if equipment_filter:
+        faults = faults.filter(equipment_id=equipment_filter)
+        repairs = repairs.filter(equipment_id=equipment_filter)
+        maintenances = maintenances.filter(equipment_id=equipment_filter)
+        inspections = inspections.filter(equipment_id=equipment_filter)
+
+    total_faults = faults.count()
+    total_downtime = faults.aggregate(total=Sum('downtime_hours'))['total'] or 0
+    total_repair_cost = repairs.aggregate(total=Sum('total_cost'))['total'] or 0
+    total_maintenance_cost = maintenances.aggregate(total=Sum('total_cost'))['total'] or 0
+    total_maintenance_count = maintenances.count()
+    completed_maintenance_plans = MaintenancePlan.objects.filter(
+        status='completed', actual_date__gte=start_date, actual_date__lte=end_date).count()
+    total_maintenance_plans = MaintenancePlan.objects.filter(
+        plan_date__gte=start_date, plan_date__lte=end_date).count()
+    maintenance_completion_rate = round(
+        completed_maintenance_plans / total_maintenance_plans * 100, 2) if total_maintenance_plans > 0 else 100
+
+    eq_stats = []
+    for eq in equipments:
+        eq_faults = faults.filter(equipment=eq)
+        eq_repairs = repairs.filter(equipment=eq)
+        eq_maintenances = maintenances.filter(equipment=eq)
+        eq_downtime = eq_faults.aggregate(total=Sum('downtime_hours'))['total'] or 0
+        eq_repair_cost = eq_repairs.aggregate(total=Sum('total_cost'))['total'] or 0
+        eq_fault_count = eq_faults.count()
+        days = (end_date - start_date).days + 1
+        failure_rate = round(eq_fault_count / days * 100, 2) if days > 0 else 0
+        total_hours = days * 24
+        availability = round((total_hours - eq_downtime) / total_hours * 100, 2) if total_hours > 0 else 100
+        eq_stats.append({
+            'equipment': eq,
+            'fault_count': eq_fault_count,
+            'downtime': round(eq_downtime, 2),
+            'repair_cost': round(eq_repair_cost, 2),
+            'maintenance_count': eq_maintenances.count(),
+            'failure_rate': failure_rate,
+            'availability': max(availability, 0),
+        })
+
+    faults_by_stage = faults.values('stage_type').annotate(
+        count=Count('id'), downtime=Sum('downtime_hours')).order_by('stage_type')
+    stage_fault_labels = [dict(STAGE_CHOICES).get(s['stage_type'], s['stage_type']) for s in faults_by_stage]
+    stage_fault_counts = [s['count'] for s in faults_by_stage]
+    stage_downtime = [round(s['downtime'] or 0, 2) for s in faults_by_stage]
+
+    faults_by_level = faults.values('fault_level').annotate(count=Count('id'))
+    level_labels = [dict(FAULT_LEVEL_CHOICES).get(s['fault_level'], s['fault_level']) for s in faults_by_level]
+    level_counts = [s['count'] for s in faults_by_level]
+
+    equipment_list = Equipment.objects.all()
+    equipments_select = equipment_list
+
+    context = {
+        'start_date': start_date_str,
+        'end_date': end_date_str,
+        'equipment_filter': equipment_filter,
+        'stage_filter': stage_filter,
+        'stats_type': stats_type,
+        'total_faults': total_faults,
+        'total_downtime': round(total_downtime, 2),
+        'total_repair_cost': round(total_repair_cost, 2),
+        'total_maintenance_cost': round(total_maintenance_cost, 2),
+        'total_maintenance_count': total_maintenance_count,
+        'maintenance_completion_rate': maintenance_completion_rate,
+        'eq_stats': eq_stats,
+        'stage_fault_labels': stage_fault_labels,
+        'stage_fault_counts': stage_fault_counts,
+        'stage_downtime': stage_downtime,
+        'level_labels': level_labels,
+        'level_counts': level_counts,
+        'equipments_select': equipments_select,
+        'STAGE_CHOICES': STAGE_CHOICES,
+        'STATS_TYPE_CHOICES': STATS_TYPE_CHOICES,
+    }
+    return render(request, 'production/equipment_statistics.html', context)
+
+
+def equipment_stats_calculate(request):
+    if request.method == 'POST':
+        try:
+            today = date.today()
+            equipments = Equipment.objects.all()
+            count = 0
+            for eq in equipments:
+                EquipmentStats.calculate_stats(eq, today, 'daily')
+                EquipmentStats.calculate_stats(eq, today, 'weekly')
+                EquipmentStats.calculate_stats(eq, today, 'monthly')
+                count += 1
+            return JsonResponse({'success': True, 'message': f'已计算 {count} 台设备的统计数据'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    return JsonResponse({'success': False, 'error': '仅支持POST请求'})
+
+
+def equipment_production_impact(request):
+    today = date.today()
+    default_start = (today - timedelta(days=90)).isoformat()
+    default_end = today.isoformat()
+
+    start_date_str = request.GET.get('start_date', default_start)
+    end_date_str = request.GET.get('end_date', default_end)
+    stage_filter = request.GET.get('stage', '')
+    equipment_filter = request.GET.get('equipment', '')
+
+    start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+
+    faults = FaultRecord.objects.filter(
+        occur_time__date__gte=start_date,
+        occur_time__date__lte=end_date,
+        is_production_impacted=True
+    ).prefetch_related('affected_batches')
+
+    if stage_filter:
+        faults = faults.filter(stage_type=stage_filter)
+    if equipment_filter:
+        faults = faults.filter(equipment_id=equipment_filter)
+
+    impact_data = []
+    for fault in faults:
+        batches = fault.affected_batches.all()
+        batch_data = []
+        for batch in batches:
+            try:
+                crystal = batch.crystallizationresult
+                crystallization_rate = crystal.get_crystallization_rate()
+                purity = crystal.crystal_purity
+                output = crystal.crystal_weight
+            except CrystallizationResult.DoesNotExist:
+                crystallization_rate = None
+                purity = None
+                output = None
+            batch_data.append({
+                'batch': batch,
+                'crystallization_rate': crystallization_rate,
+                'purity': purity,
+                'output': output,
+            })
+        impact_data.append({
+            'fault': fault,
+            'batches': batch_data,
+        })
+
+    affected_batch_ids = faults.values_list('affected_batches__id', flat=True).distinct()
+    affected_batches = RawMaterialBatch.objects.filter(id__in=affected_batch_ids)
+    normal_batches = RawMaterialBatch.objects.filter(
+        start_date__gte=start_date, start_date__lte=end_date
+    ).exclude(id__in=affected_batch_ids)
+
+    affected_crystal_rates = []
+    affected_purities = []
+    affected_outputs = []
+    for b in affected_batches:
+        try:
+            cr = b.crystallizationresult
+            rate = cr.get_crystallization_rate()
+            if rate:
+                affected_crystal_rates.append(rate)
+            if cr.crystal_purity:
+                affected_purities.append(cr.crystal_purity)
+            affected_outputs.append(cr.crystal_weight)
+        except CrystallizationResult.DoesNotExist:
+            pass
+
+    normal_crystal_rates = []
+    normal_purities = []
+    normal_outputs = []
+    for b in normal_batches:
+        try:
+            cr = b.crystallizationresult
+            rate = cr.get_crystallization_rate()
+            if rate:
+                normal_crystal_rates.append(rate)
+            if cr.crystal_purity:
+                normal_purities.append(cr.crystal_purity)
+            normal_outputs.append(cr.crystal_weight)
+        except CrystallizationResult.DoesNotExist:
+            pass
+
+    def avg(lst):
+        return round(sum(lst) / len(lst), 2) if lst else None
+
+    comparison = {
+        'affected': {
+            'avg_rate': avg(affected_crystal_rates),
+            'avg_purity': avg(affected_purities),
+            'avg_output': avg(affected_outputs),
+            'count': len(affected_batches),
+        },
+        'normal': {
+            'avg_rate': avg(normal_crystal_rates),
+            'avg_purity': avg(normal_purities),
+            'avg_output': avg(normal_outputs),
+            'count': len(normal_batches),
+        },
+    }
+
+    equipments = Equipment.objects.all()
+
+    context = {
+        'start_date': start_date_str,
+        'end_date': end_date_str,
+        'stage_filter': stage_filter,
+        'equipment_filter': equipment_filter,
+        'impact_data': impact_data,
+        'comparison': comparison,
+        'equipments': equipments,
+        'STAGE_CHOICES': STAGE_CHOICES,
+    }
+    return render(request, 'production/equipment_production_impact.html', context)

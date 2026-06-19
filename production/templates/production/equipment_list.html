@@ -1,0 +1,115 @@
+{% extends 'production/base.html' %}
+
+{% block title %}设备档案 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🏭 设备档案管理</h2>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:equipment_list' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>关键字</label>
+            <input type="text" name="keyword" placeholder="编号/名称/类型" value="{{ keyword }}">
+        </div>
+        <div class="form-group">
+            <label>所属工序</label>
+            <select name="stage">
+                <option value="">全部工序</option>
+                {% for value, label in STAGE_CHOICES %}
+                <option value="{{ value }}" {% if stage_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>设备状态</label>
+            <select name="status">
+                <option value="">全部状态</option>
+                {% for value, label in EQUIPMENT_STATUS_CHOICES %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>重要程度</label>
+            <select name="importance">
+                <option value="">全部级别</option>
+                {% for value, label in IMPORTANCE_LEVEL_CHOICES %}
+                <option value="{{ value }}" {% if importance_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:equipment_list' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="actions-bar">
+    <a href="{% url 'production:equipment_create' %}" class="btn btn-success">➕ 新增设备</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>设备编号</th>
+                <th>设备名称</th>
+                <th>类型</th>
+                <th>所属工序</th>
+                <th>规格型号</th>
+                <th>位置</th>
+                <th>状态</th>
+                <th>重要程度</th>
+                <th>责任人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for eq in equipments %}
+            <tr>
+                <td><strong>{{ eq.equipment_code }}</strong></td>
+                <td>{{ eq.equipment_name }}</td>
+                <td>{{ eq.equipment_type|default:"-" }}</td>
+                <td>{{ eq.get_stage_type_display }}</td>
+                <td>{{ eq.model_spec|default:"-" }}</td>
+                <td>{{ eq.location|default:"-" }}</td>
+                <td>
+                    {% if eq.status == 'running' %}
+                    <span class="badge badge-success">运行中</span>
+                    {% elif eq.status == 'standby' %}
+                    <span class="badge badge-info">待机</span>
+                    {% elif eq.status == 'fault' %}
+                    <span class="badge badge-danger">故障</span>
+                    {% elif eq.status == 'maintenance' %}
+                    <span class="badge badge-warning">维护中</span>
+                    {% else %}
+                    <span class="badge badge-secondary">停用</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if eq.importance_level == 'critical' %}
+                    <span class="badge badge-danger">关键</span>
+                    {% elif eq.importance_level == 'important' %}
+                    <span class="badge badge-warning">重要</span>
+                    {% elif eq.importance_level == 'general' %}
+                    <span class="badge badge-info">一般</span>
+                    {% else %}
+                    <span class="badge badge-secondary">次要</span>
+                    {% endif %}
+                </td>
+                <td>{{ eq.responsible_person|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:equipment_detail' eq.pk %}" class="btn btn-sm btn-primary">详情</a>
+                    <a href="{% url 'production:equipment_edit' eq.pk %}" class="btn btn-sm btn-warning">编辑</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无设备数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

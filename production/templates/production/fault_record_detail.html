@@ -1,0 +1,190 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{{ fault.fault_code }} - 故障详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 故障详情 - {{ fault.fault_code }}</h2>
+
+<div class="card">
+    <h3 class="card-title">故障基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">故障编号</div>
+            <div class="value">{{ fault.fault_code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">设备</div>
+            <div class="value">
+                <a href="{% url 'production:equipment_detail' fault.equipment.pk %}" style="color: #667eea;">
+                    {{ fault.equipment.equipment_name }}
+                </a>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">故障等级</div>
+            <div class="value">
+                {% if fault.fault_level == 'critical' %}
+                <span class="badge badge-danger">严重</span>
+                {% elif fault.fault_level == 'major' %}
+                <span class="badge badge-warning">重大</span>
+                {% elif fault.fault_level == 'general' %}
+                <span class="badge badge-info">一般</span>
+                {% else %}
+                <span class="badge badge-success">轻微</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">所属工序</div>
+            <div class="value">{{ fault.get_stage_type_display|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">发生时间</div>
+            <div class="value">{{ fault.occur_time|date:"Y-m-d H:i" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">发现人</div>
+            <div class="value">{{ fault.discovery_person|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">故障位置</div>
+            <div class="value">{{ fault.fault_location|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">故障状态</div>
+            <div class="value">
+                {% if fault.fault_status == 'reported' %}
+                <span class="badge badge-danger">已上报</span>
+                {% elif fault.fault_status == 'diagnosing' %}
+                <span class="badge badge-warning">诊断中</span>
+                {% elif fault.fault_status == 'repairing' %}
+                <span class="badge badge-info">维修中</span>
+                {% elif fault.fault_status == 'resolved' %}
+                <span class="badge badge-success">已解决</span>
+                {% else %}
+                <span class="badge badge-secondary">已关闭</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div style="margin-top: 15px;">
+        <strong>故障现象：</strong>{{ fault.fault_phenomenon|default:"-" }}
+    </div>
+    <div style="margin-top: 10px;">
+        <strong>故障原因：</strong>{{ fault.fault_cause|default:"-" }}
+    </div>
+    <div style="margin-top: 10px;">
+        <strong>影响描述：</strong>{{ fault.impact_description|default:"-" }}
+    </div>
+    <div style="margin-top: 10px;">
+        <strong>是否影响生产：</strong>
+        {% if fault.is_production_impacted %}
+        <span class="badge badge-danger">是</span>
+        {% else %}
+        <span class="badge badge-success">否</span>
+        {% endif %}
+    </div>
+    
+    {% if fault.affected_batches.all %}
+    <div style="margin-top: 15px;">
+        <strong>影响批次：</strong>
+        {% for batch in fault.affected_batches.all %}
+        <a href="{% url 'production:batch_detail' batch.pk %}" class="badge badge-info" style="margin-right: 5px;">{{ batch.batch_no }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">损失与处理</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">停机时长</div>
+            <div class="value">{{ fault.downtime_hours }}小时</div>
+        </div>
+        <div class="info-item">
+            <div class="label">维修费用</div>
+            <div class="value">¥{{ fault.repair_cost|default:0 }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">生产损失</div>
+            <div class="value">¥{{ fault.production_loss|default:0 }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">总损失</div>
+            <div class="value" style="color: #e74c3c;">¥{{ fault.total_loss }}</div>
+        </div>
+    </div>
+    
+    {% if fault.resolve_time %}
+    <div style="margin-top: 15px;">
+        <strong>解决时间：</strong>{{ fault.resolve_time|date:"Y-m-d H:i" }}
+    </div>
+    <div style="margin-top: 10px;">
+        <strong>解决人：</strong>{{ fault.resolver|default:"-" }}
+    </div>
+    {% endif %}
+    <div style="margin-top: 10px;">
+        <strong>处理措施：</strong>{{ fault.handling_measures|default:"-" }}
+    </div>
+    <div style="margin-top: 10px;">
+        <strong>预防措施：</strong>{{ fault.prevention_measures|default:"-" }}
+    </div>
+    {% if fault.remarks %}
+    <div style="margin-top: 10px;">
+        <strong>备注：</strong>{{ fault.remarks }}
+    </div>
+    {% endif %}
+    
+    <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+        {% if fault.fault_status != 'resolved' and fault.fault_status != 'closed' %}
+        <a href="{% url 'production:fault_record_resolve' fault.pk %}" class="btn btn-success">标记解决</a>
+        {% endif %}
+        <a href="{% url 'production:repair_record_create' fault.equipment.pk %}" class="btn btn-primary">创建维修</a>
+        <a href="{% url 'production:fault_record_list' %}" class="btn btn-warning">返回列表</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">关联维修记录</h3>
+    {% if related_repairs %}
+    <table>
+        <thead>
+            <tr>
+                <th>维修单号</th>
+                <th>类型</th>
+                <th>申请日期</th>
+                <th>维修人</th>
+                <th>费用</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for repair in related_repairs %}
+            <tr>
+                <td>{{ repair.repair_code }}</td>
+                <td>{{ repair.get_repair_type_display }}</td>
+                <td>{{ repair.apply_date }}</td>
+                <td>{{ repair.repair_person|default:"-" }}</td>
+                <td>¥{{ repair.total_cost }}</td>
+                <td>
+                    {% if repair.status == 'pending' %}
+                    <span class="badge badge-warning">待处理</span>
+                    {% elif repair.status == 'processing' %}
+                    <span class="badge badge-info">维修中</span>
+                    {% elif repair.status == 'completed' %}
+                    <span class="badge badge-success">已完成</span>
+                    {% else %}
+                    <span class="badge badge-secondary">已取消</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无关联维修记录</p>
+    {% endif %}
+</div>
+{% endblock %}

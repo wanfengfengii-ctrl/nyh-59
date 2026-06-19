@@ -1,0 +1,577 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{{ equipment.equipment_name }} - 设备详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🏭 设备详情 - {{ equipment.equipment_name }}</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ fault_count_30d }}</div>
+        <div class="stat-label">近30天故障数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ downtime_30d }}h</div>
+        <div class="stat-label">近30天停机时长</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e67e22;">¥{{ repair_cost_30d }}</div>
+        <div class="stat-label">近30天维修成本</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ maintenance_count_30d }}</div>
+        <div class="stat-label">近30天保养次数</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">设备编号</div>
+            <div class="value">{{ equipment.equipment_code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">设备名称</div>
+            <div class="value">{{ equipment.equipment_name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">设备类型</div>
+            <div class="value">{{ equipment.equipment_type|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">所属工序</div>
+            <div class="value">{{ equipment.get_stage_type_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">规格型号</div>
+            <div class="value">{{ equipment.model_spec|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">生产厂家</div>
+            <div class="value">{{ equipment.manufacturer|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">供应商</div>
+            <div class="value">{{ equipment.supplier|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">购置日期</div>
+            <div class="value">{{ equipment.purchase_date|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">启用日期</div>
+            <div class="value">{{ equipment.commission_date|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原值</div>
+            <div class="value">¥{{ equipment.original_value|default:0 }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">折旧年限</div>
+            <div class="value">{{ equipment.depreciation_years|default:0 }}年</div>
+        </div>
+        <div class="info-item">
+            <div class="label">安装位置</div>
+            <div class="value">{{ equipment.location|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">设备状态</div>
+            <div class="value">
+                {% if equipment.status == 'running' %}
+                <span class="badge badge-success">运行中</span>
+                {% elif equipment.status == 'standby' %}
+                <span class="badge badge-info">待机</span>
+                {% elif equipment.status == 'fault' %}
+                <span class="badge badge-danger">故障</span>
+                {% elif equipment.status == 'maintenance' %}
+                <span class="badge badge-warning">维护中</span>
+                {% else %}
+                <span class="badge badge-secondary">停用</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">重要程度</div>
+            <div class="value">
+                {% if equipment.importance_level == 'critical' %}
+                <span class="badge badge-danger">关键设备</span>
+                {% elif equipment.importance_level == 'important' %}
+                <span class="badge badge-warning">重要设备</span>
+                {% elif equipment.importance_level == 'general' %}
+                <span class="badge badge-info">一般设备</span>
+                {% else %}
+                <span class="badge badge-secondary">次要设备</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">额定功率</div>
+            <div class="value">{{ equipment.rated_power|default:"-" }} kW</div>
+        </div>
+        <div class="info-item">
+            <div class="label">额定产能</div>
+            <div class="value">{{ equipment.rated_capacity|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">责任人</div>
+            <div class="value">{{ equipment.responsible_person|default:"-" }}</div>
+        </div>
+    </div>
+    {% if equipment.technical_params %}
+    <div style="margin-top: 15px;">
+        <strong>技术参数：</strong>{{ equipment.technical_params }}
+    </div>
+    {% endif %}
+    {% if equipment.operation_instructions %}
+    <div style="margin-top: 10px;">
+        <strong>操作规程：</strong>{{ equipment.operation_instructions }}
+    </div>
+    {% endif %}
+    {% if equipment.remarks %}
+    <div style="margin-top: 10px;">
+        <strong>备注：</strong>{{ equipment.remarks }}
+    </div>
+    {% endif %}
+    <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <a href="{% url 'production:equipment_edit' equipment.pk %}" class="btn btn-warning">编辑设备</a>
+        <a href="{% url 'production:equipment_inspection_create' equipment.pk %}" class="btn btn-primary">添加点检</a>
+        <a href="{% url 'production:maintenance_plan_create' equipment.pk %}" class="btn btn-success">创建保养计划</a>
+        <a href="{% url 'production:maintenance_record_create' equipment.pk %}" class="btn btn-info" style="background: #17a2b8; border-color: #17a2b8;">添加保养记录</a>
+        <a href="{% url 'production:repair_record_create' equipment.pk %}" class="btn btn-danger">维修登记</a>
+        <a href="{% url 'production:fault_record_create' equipment.pk %}" class="btn btn-warning">故障上报</a>
+        <a href="{% url 'production:spare_part_replacement_create' equipment.pk %}" class="btn btn-secondary">备件更换</a>
+        <a href="{% url 'production:equipment_status_record_create' equipment.pk %}" class="btn btn-primary" style="background: #9b59b6; border-color: #9b59b6;">记录状态</a>
+    </div>
+</div>
+
+{% if temp_data %}
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">🌡️ 温度变化趋势</h3>
+        <div class="chart-container">
+            <canvas id="tempChart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h3 class="card-title">💨 压力变化趋势</h3>
+        <div class="chart-container">
+            <canvas id="pressureChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3 class="card-title">🔍 点检记录</h3>
+    {% if inspections %}
+    <table>
+        <thead>
+            <tr>
+                <th>日期</th>
+                <th>类型</th>
+                <th>温度</th>
+                <th>振动</th>
+                <th>噪音</th>
+                <th>压力</th>
+                <th>结果</th>
+                <th>点检人</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for insp in inspections %}
+            <tr>
+                <td>{{ insp.inspection_date }}</td>
+                <td>{{ insp.get_inspection_type_display }}</td>
+                <td>{{ insp.temperature|default:"-" }}°C</td>
+                <td>{{ insp.vibration|default:"-" }}mm/s</td>
+                <td>{{ insp.noise|default:"-" }}dB</td>
+                <td>{{ insp.pressure|default:"-" }}MPa</td>
+                <td>
+                    {% if insp.result == 'normal' %}
+                    <span class="badge badge-success">正常</span>
+                    {% elif insp.result == 'warning' %}
+                    <span class="badge badge-warning">注意</span>
+                    {% else %}
+                    <span class="badge badge-danger">异常</span>
+                    {% endif %}
+                </td>
+                <td>{{ insp.inspector|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无点检记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📅 保养计划</h3>
+    {% if maintenance_plans %}
+    <table>
+        <thead>
+            <tr>
+                <th>计划编号</th>
+                <th>计划名称</th>
+                <th>类型</th>
+                <th>计划日期</th>
+                <th>周期</th>
+                <th>负责人</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for plan in maintenance_plans %}
+            <tr>
+                <td>{{ plan.plan_code }}</td>
+                <td>{{ plan.plan_name }}</td>
+                <td>{{ plan.get_maintenance_type_display }}</td>
+                <td>{{ plan.plan_date }}</td>
+                <td>每{{ plan.cycle_days }}天</td>
+                <td>{{ plan.responsible_person|default:"-" }}</td>
+                <td>
+                    {% if plan.status == 'pending' %}
+                    <span class="badge badge-warning">待执行</span>
+                    {% elif plan.status == 'overdue' %}
+                    <span class="badge badge-danger">已逾期</span>
+                    {% elif plan.status == 'completed' %}
+                    <span class="badge badge-success">已完成</span>
+                    {% else %}
+                    <span class="badge badge-secondary">已取消</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if plan.status == 'pending' or plan.status == 'overdue' %}
+                    <a href="{% url 'production:maintenance_plan_complete' plan.pk %}" class="btn btn-sm btn-success">完成</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无保养计划</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔧 保养记录</h3>
+    {% if maintenance_records %}
+    <table>
+        <thead>
+            <tr>
+                <th>记录编号</th>
+                <th>类型</th>
+                <th>开始时间</th>
+                <th>结束时间</th>
+                <th>工时</th>
+                <th>费用</th>
+                <th>质量评分</th>
+                <th>操作人</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in maintenance_records %}
+            <tr>
+                <td>{{ record.record_code }}</td>
+                <td>{{ record.get_maintenance_type_display }}</td>
+                <td>{{ record.start_time|date:"Y-m-d H:i" }}</td>
+                <td>{{ record.end_time|date:"Y-m-d H:i"|default:"-" }}</td>
+                <td>{{ record.work_hours }}h</td>
+                <td>¥{{ record.total_cost }}</td>
+                <td>
+                    {% if record.quality_rating %}
+                    {{ record.quality_rating }}/5
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{{ record.operator|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无保养记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔨 维修记录</h3>
+    {% if repairs %}
+    <table>
+        <thead>
+            <tr>
+                <th>维修单号</th>
+                <th>类型</th>
+                <th>申请日期</th>
+                <th>维修人</th>
+                <th>费用</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for repair in repairs %}
+            <tr>
+                <td>{{ repair.repair_code }}</td>
+                <td>{{ repair.get_repair_type_display }}</td>
+                <td>{{ repair.apply_date }}</td>
+                <td>{{ repair.repair_person|default:"-" }}</td>
+                <td>¥{{ repair.total_cost }}</td>
+                <td>
+                    {% if repair.status == 'pending' %}
+                    <span class="badge badge-warning">待处理</span>
+                    {% elif repair.status == 'processing' %}
+                    <span class="badge badge-info">维修中</span>
+                    {% elif repair.status == 'completed' %}
+                    <span class="badge badge-success">已完成</span>
+                    {% else %}
+                    <span class="badge badge-secondary">已取消</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if repair.status == 'pending' or repair.status == 'processing' %}
+                    <a href="{% url 'production:repair_record_complete' repair.pk %}" class="btn btn-sm btn-success">完成</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无维修记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">🚨 故障记录</h3>
+    {% if faults %}
+    <table>
+        <thead>
+            <tr>
+                <th>故障编号</th>
+                <th>等级</th>
+                <th>发生时间</th>
+                <th>停机时长</th>
+                <th>损失</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for fault in faults %}
+            <tr>
+                <td>{{ fault.fault_code }}</td>
+                <td>
+                    {% if fault.fault_level == 'critical' %}
+                    <span class="badge badge-danger">严重</span>
+                    {% elif fault.fault_level == 'major' %}
+                    <span class="badge badge-warning">重大</span>
+                    {% elif fault.fault_level == 'general' %}
+                    <span class="badge badge-info">一般</span>
+                    {% else %}
+                    <span class="badge badge-success">轻微</span>
+                    {% endif %}
+                </td>
+                <td>{{ fault.occur_time|date:"Y-m-d H:i" }}</td>
+                <td>{{ fault.downtime_hours }}h</td>
+                <td>¥{{ fault.total_loss }}</td>
+                <td>
+                    {% if fault.fault_status == 'reported' %}
+                    <span class="badge badge-danger">已上报</span>
+                    {% elif fault.fault_status == 'diagnosing' %}
+                    <span class="badge badge-warning">诊断中</span>
+                    {% elif fault.fault_status == 'repairing' %}
+                    <span class="badge badge-info">维修中</span>
+                    {% elif fault.fault_status == 'resolved' %}
+                    <span class="badge badge-success">已解决</span>
+                    {% else %}
+                    <span class="badge badge-secondary">已关闭</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'production:fault_record_detail' fault.pk %}" class="btn btn-sm btn-primary">查看</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无故障记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📡 运行状态记录</h3>
+    {% if status_records %}
+    <table>
+        <thead>
+            <tr>
+                <th>记录时间</th>
+                <th>运行状态</th>
+                <th>批次</th>
+                <th>温度</th>
+                <th>压力</th>
+                <th>电流</th>
+                <th>是否报警</th>
+                <th>操作人</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in status_records %}
+            <tr>
+                <td>{{ record.record_time|date:"Y-m-d H:i" }}</td>
+                <td>{{ record.get_run_status_display }}</td>
+                <td>{{ record.batch.batch_no|default:"-" }}</td>
+                <td>{{ record.temperature|default:"-" }}°C</td>
+                <td>{{ record.pressure|default:"-" }}MPa</td>
+                <td>{{ record.current|default:"-" }}A</td>
+                <td>
+                    {% if record.is_alarm %}
+                    <span class="badge badge-danger">报警</span>
+                    {% else %}
+                    <span class="badge badge-success">正常</span>
+                    {% endif %}
+                </td>
+                <td>{{ record.operator|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无状态记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📦 备件更换记录</h3>
+    {% if part_replacements %}
+    <table>
+        <thead>
+            <tr>
+                <th>更换单号</th>
+                <th>备件名称</th>
+                <th>数量</th>
+                <th>单价</th>
+                <th>费用</th>
+                <th>更换日期</th>
+                <th>操作人</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rep in part_replacements %}
+            <tr>
+                <td>{{ rep.replacement_code }}</td>
+                <td>{{ rep.spare_part.part_name }}</td>
+                <td>{{ rep.quantity }} {{ rep.spare_part.unit }}</td>
+                <td>¥{{ rep.unit_price }}</td>
+                <td>¥{{ rep.total_cost }}</td>
+                <td>{{ rep.replacement_date }}</td>
+                <td>{{ rep.operator|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无备件更换记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📊 设备统计数据</h3>
+    {% if stats %}
+    <table>
+        <thead>
+            <tr>
+                <th>统计日期</th>
+                <th>类型</th>
+                <th>运行时长</th>
+                <th>故障次数</th>
+                <th>停机时长</th>
+                <th>MTBF</th>
+                <th>MTTR</th>
+                <th>可用率</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in stats %}
+            <tr>
+                <td>{{ s.stats_date }}</td>
+                <td>{{ s.get_stats_type_display }}</td>
+                <td>{{ s.runtime_hours|default:0 }}h</td>
+                <td>{{ s.fault_count|default:0 }}</td>
+                <td>{{ s.downtime_hours|default:0 }}h</td>
+                <td>{{ s.mtbf|default:"-" }}h</td>
+                <td>{{ s.mttr|default:"-" }}h</td>
+                <td>{{ s.availability|default:0 }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无统计数据</p>
+    {% endif %}
+    {% if applicable_parts %}
+    <h4 style="margin-top: 20px;">适用备件</h4>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        {% for part in applicable_parts %}
+        <span class="badge badge-info">{{ part.part_name }} ({{ part.specification }})</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if temp_data %}
+<script>
+const tempLabels = {{ temp_data|safe }}.map(d => d.time);
+const tempValues = {{ temp_data|safe }}.map(d => d.value);
+const pressureLabels = {{ pressure_data|safe }}.map(d => d.time);
+const pressureValues = {{ pressure_data|safe }}.map(d => d.value);
+
+new Chart(document.getElementById('tempChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: tempLabels,
+        datasets: [{
+            label: '温度 (°C)',
+            data: tempValues,
+            borderColor: '#e74c3c',
+            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+            tension: 0.3,
+            fill: true,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { title: { display: true, text: '温度监测趋势' } }
+    }
+});
+
+new Chart(document.getElementById('pressureChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: pressureLabels,
+        datasets: [{
+            label: '压力 (MPa)',
+            data: pressureValues,
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+            tension: 0.3,
+            fill: true,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { title: { display: true, text: '压力监测趋势' } }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

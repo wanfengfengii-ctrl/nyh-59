@@ -1,0 +1,109 @@
+{% extends 'production/base.html' %}
+
+{% block title %}添加保养记录 - {{ equipment.equipment_name }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔧 添加保养记录 - {{ equipment.equipment_name }}</h2>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>记录编号</label>
+                <input type="text" name="record_code" value="{{ default_code }}" placeholder="系统自动生成">
+            </div>
+            <div class="form-group">
+                <label>关联保养计划</label>
+                <select name="plan">
+                    <option value="">无</option>
+                    {% for p in plans %}
+                    <option value="{{ p.pk }}">{{ p.plan_name }} ({{ p.plan_date }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>保养类型 *</label>
+                <select name="maintenance_type" required>
+                    {% for value, label in MAINTENANCE_TYPE_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>操作人</label>
+                <input type="text" name="operator" placeholder="请输入操作人姓名">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>开始时间</label>
+                <input type="datetime-local" name="start_time">
+            </div>
+            <div class="form-group">
+                <label>结束时间</label>
+                <input type="datetime-local" name="end_time">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>工时(小时)</label>
+                <input type="number" step="0.5" name="work_hours" value="0">
+            </div>
+            <div class="form-group">
+                <label>质量评分(1-5)</label>
+                <input type="number" name="quality_rating" min="1" max="5" placeholder="请输入1-5分">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>人工费用(元)</label>
+                <input type="number" step="0.01" name="labor_cost" value="0">
+            </div>
+            <div class="form-group">
+                <label>备件费用(元)</label>
+                <input type="number" step="0.01" name="parts_cost" value="0">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>其他费用(元)</label>
+            <input type="number" step="0.01" name="other_cost" value="0">
+        </div>
+        
+        <div class="form-group">
+            <label>保养内容 *</label>
+            <textarea name="content" rows="4" required placeholder="请详细描述保养内容"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>保养结果</label>
+            <textarea name="result" rows="3" placeholder="请描述保养结果、发现的问题等"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="has_replacement">
+                <span>是否更换备件</span>
+            </label>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">提交保养记录</button>
+            <a href="{% url 'production:equipment_detail' equipment.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

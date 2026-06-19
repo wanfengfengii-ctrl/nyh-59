@@ -1,0 +1,82 @@
+{% extends 'production/base.html' %}
+
+{% block title %}创建保养计划 - {{ equipment.equipment_name }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📅 创建保养计划 - {{ equipment.equipment_name }}</h2>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>计划编号</label>
+                <input type="text" name="plan_code" value="{{ default_code }}" placeholder="系统自动生成或手动输入">
+            </div>
+            <div class="form-group">
+                <label>计划名称 *</label>
+                <input type="text" name="plan_name" required placeholder="请输入计划名称">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>保养类型 *</label>
+                <select name="maintenance_type" required>
+                    {% for value, label in MAINTENANCE_TYPE_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>计划日期 *</label>
+                <input type="date" name="plan_date" value="{% now 'Y-m-d' %}" required>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>周期(天)</label>
+                <input type="number" name="cycle_days" value="30" placeholder="周期性保养请填写周期">
+                <small style="color: #999;">完成后将自动生成下一期计划，填0则不自动续期</small>
+            </div>
+            <div class="form-group">
+                <label>负责人</label>
+                <input type="text" name="responsible_person" placeholder="请输入负责人姓名">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>预计工时(小时)</label>
+                <input type="number" step="0.5" name="estimated_hours" value="0">
+            </div>
+            <div class="form-group">
+                <label>预计费用(元)</label>
+                <input type="number" step="0.01" name="estimated_cost" value="0">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>保养内容 *</label>
+            <textarea name="content" rows="4" required placeholder="请详细描述保养内容"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>保养标准</label>
+            <textarea name="standard" rows="3" placeholder="请输入保养验收标准"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">创建保养计划</button>
+            <a href="{% url 'production:equipment_detail' equipment.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

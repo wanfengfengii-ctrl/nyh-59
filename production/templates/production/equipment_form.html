@@ -1,0 +1,145 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{% if equipment %}编辑设备{% else %}新增设备{% endif %} - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">{% if equipment %}📝 编辑设备{% else %}➕ 新增设备{% endif %}</h2>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>设备编号 *</label>
+                <input type="text" name="equipment_code" value="{% if equipment %}{{ equipment.equipment_code }}{% else %}{{ default_code }}{% endif %}" required placeholder="请输入设备编号">
+            </div>
+            <div class="form-group">
+                <label>设备名称 *</label>
+                <input type="text" name="equipment_name" value="{% if equipment %}{{ equipment.equipment_name }}{% endif %}" required placeholder="请输入设备名称">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>设备类型</label>
+                <input type="text" name="equipment_type" value="{% if equipment %}{{ equipment.equipment_type }}{% endif %}" placeholder="如：反应釜、过滤器等">
+            </div>
+            <div class="form-group">
+                <label>所属工序 *</label>
+                <select name="stage_type" required>
+                    <option value="">请选择工序</option>
+                    {% for value, label in STAGE_CHOICES %}
+                    <option value="{{ value }}" {% if equipment and equipment.stage_type == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>规格型号</label>
+                <input type="text" name="model_spec" value="{% if equipment %}{{ equipment.model_spec }}{% endif %}" placeholder="请输入规格型号">
+            </div>
+            <div class="form-group">
+                <label>生产厂家</label>
+                <input type="text" name="manufacturer" value="{% if equipment %}{{ equipment.manufacturer }}{% endif %}" placeholder="请输入生产厂家">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>供应商</label>
+                <input type="text" name="supplier" value="{% if equipment %}{{ equipment.supplier }}{% endif %}" placeholder="请输入供应商">
+            </div>
+            <div class="form-group">
+                <label>安装位置</label>
+                <input type="text" name="location" value="{% if equipment %}{{ equipment.location }}{% endif %}" placeholder="请输入安装位置">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>购置日期</label>
+                <input type="date" name="purchase_date" value="{% if equipment and equipment.purchase_date %}{{ equipment.purchase_date|date:'Y-m-d' }}{% endif %}">
+            </div>
+            <div class="form-group">
+                <label>启用日期</label>
+                <input type="date" name="commission_date" value="{% if equipment and equipment.commission_date %}{{ equipment.commission_date|date:'Y-m-d' }}{% endif %}">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>设备原值(元)</label>
+                <input type="number" step="0.01" name="original_value" value="{% if equipment %}{{ equipment.original_value|default:0 }}{% else %}0{% endif %}">
+            </div>
+            <div class="form-group">
+                <label>折旧年限(年)</label>
+                <input type="number" name="depreciation_years" value="{% if equipment %}{{ equipment.depreciation_years|default:10 }}{% else %}10{% endif %}">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>额定功率(kW)</label>
+                <input type="number" step="0.01" name="rated_power" value="{% if equipment %}{{ equipment.rated_power }}{% endif %}" placeholder="请输入额定功率">
+            </div>
+            <div class="form-group">
+                <label>额定产能</label>
+                <input type="number" step="0.01" name="rated_capacity" value="{% if equipment %}{{ equipment.rated_capacity }}{% endif %}" placeholder="请输入额定产能">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>设备状态 *</label>
+                <select name="status" required>
+                    {% for value, label in EQUIPMENT_STATUS_CHOICES %}
+                    <option value="{{ value }}" {% if equipment and equipment.status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>重要程度 *</label>
+                <select name="importance_level" required>
+                    {% for value, label in IMPORTANCE_LEVEL_CHOICES %}
+                    <option value="{{ value }}" {% if equipment and equipment.importance_level == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>责任人</label>
+            <input type="text" name="responsible_person" value="{% if equipment %}{{ equipment.responsible_person }}{% endif %}" placeholder="请输入责任人姓名">
+        </div>
+        
+        <div class="form-group">
+            <label>技术参数</label>
+            <textarea name="technical_params" rows="3" placeholder="请输入技术参数">{% if equipment %}{{ equipment.technical_params }}{% endif %}</textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>操作规程</label>
+            <textarea name="operation_instructions" rows="3" placeholder="请输入操作规程">{% if equipment %}{{ equipment.operation_instructions }}{% endif %}</textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息">{% if equipment %}{{ equipment.remarks }}{% endif %}</textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">
+                {% if equipment %}保存修改{% else %}创建设备{% endif %}
+            </button>
+            {% if equipment %}
+            <a href="{% url 'production:equipment_detail' equipment.pk %}" class="btn btn-warning">取消</a>
+            {% else %}
+            <a href="{% url 'production:equipment_list' %}" class="btn btn-warning">取消</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+{% endblock %}

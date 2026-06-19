@@ -1,0 +1,215 @@
+{% extends 'production/base.html' %}
+
+{% block title %}设备统计分析 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📊 设备统计分析</h2>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:equipment_statistics' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>工序</label>
+            <select name="process">
+                <option value="">全部工序</option>
+                {% for value, label in PROCESS_CHOICES %}
+                <option value="{{ value }}" {% if process_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>设备</label>
+            <select name="equipment">
+                <option value="">全部设备</option>
+                {% for eq in equipments %}
+                <option value="{{ eq.pk }}" {% if equipment_filter == eq.pk|stringformat:"s" %}selected{% endif %}>{{ eq.equipment_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </div>
+        <button type="submit" class="btn btn-primary">统计</button>
+        <a href="{% url 'production:equipment_statistics' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(5, 1fr); margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ stats.fault_count }}</div>
+        <div class="stat-label">故障次数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ stats.total_downtime }}h</div>
+        <div class="stat-label">停机时长</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e67e22;">¥{{ stats.total_repair_cost }}</div>
+        <div class="stat-label">维修成本</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ stats.maintenance_rate }}%</div>
+        <div class="stat-label">保养完成率</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #9b59b6;">{{ stats.availability }}%</div>
+        <div class="stat-label">设备可用率</div>
+    </div>
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-value" style="color: #3498db;">{{ stats.mtbf }}h</div>
+        <div class="stat-label">平均故障间隔 (MTBF)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e91e63;">{{ stats.mttr }}h</div>
+        <div class="stat-label">平均修复时间 (MTTR)</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">故障率趋势</h3>
+    <canvas id="faultTrendChart" style="max-height: 300px;"></canvas>
+</div>
+
+<div class="card" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div>
+        <h3 class="card-title">工序故障分布</h3>
+        <canvas id="faultByProcessChart" style="max-height: 300px;"></canvas>
+    </div>
+    <div>
+        <h3 class="card-title">月度维修成本</h3>
+        <canvas id="costChart" style="max-height: 300px;"></canvas>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">各设备详细统计</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>设备编号</th>
+                <th>设备名称</th>
+                <th>工序</th>
+                <th>故障次数</th>
+                <th>停机时长(h)</th>
+                <th>维修成本(元)</th>
+                <th>保养完成率</th>
+                <th>可用率</th>
+                <th>MTBF(h)</th>
+                <th>MTTR(h)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for eq in equipment_stats %}
+            <tr>
+                <td><strong>{{ eq.equipment_code }}</strong></td>
+                <td>
+                    <a href="{% url 'production:equipment_detail' eq.pk %}" style="color: #667eea;">
+                        {{ eq.equipment_name }}
+                    </a>
+                </td>
+                <td>{{ eq.get_process_display }}</td>
+                <td style="color: #e74c3c; font-weight: bold;">{{ eq.fault_count|default:0 }}</td>
+                <td>{{ eq.total_downtime|default:0 }}</td>
+                <td style="color: #e67e22;">¥{{ eq.repair_cost|default:0 }}</td>
+                <td style="color: #27ae60;">{{ eq.maintenance_rate|default:0 }}%</td>
+                <td style="color: #9b59b6;">{{ eq.availability|default:0 }}%</td>
+                <td style="color: #3498db;">{{ eq.mtbf|default:0 }}</td>
+                <td style="color: #e91e63;">{{ eq.mttr|default:0 }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无统计数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+const months = {{ months|safe }};
+const faultCounts = {{ fault_counts_by_month }};
+const downtimeByMonth = {{ downtime_by_month }};
+const costByMonth = {{ cost_by_month }};
+const processFaults = {{ process_faults }};
+const processNames = {{ process_names|safe }};
+
+new Chart(document.getElementById('faultTrendChart'), {
+    type: 'line',
+    data: {
+        labels: months,
+        datasets: [
+            {
+                label: '故障次数',
+                data: faultCounts,
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231,76,60,0.1)',
+                tension: 0.4,
+                fill: true
+            },
+            {
+                label: '停机时长(h)',
+                data: downtimeByMonth,
+                borderColor: '#f39c12',
+                backgroundColor: 'rgba(243,156,18,0.1)',
+                tension: 0.4,
+                fill: true,
+                yAxisID: 'y1'
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { position: 'top' } },
+        scales: {
+            y: { type: 'linear', position: 'left', title: { display: true, text: '故障次数' } },
+            y1: { type: 'linear', position: 'right', title: { display: true, text: '停机时长(h)' }, grid: { drawOnChartArea: false } }
+        }
+    }
+});
+
+new Chart(document.getElementById('faultByProcessChart'), {
+    type: 'pie',
+    data: {
+        labels: processNames,
+        datasets: [{
+            data: processFaults,
+            backgroundColor: ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#fee140']
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } }
+    }
+});
+
+new Chart(document.getElementById('costChart'), {
+    type: 'bar',
+    data: {
+        labels: months,
+        datasets: [{
+            label: '维修成本(元)',
+            data: costByMonth,
+            backgroundColor: 'rgba(230,126,34,0.7)',
+            borderColor: '#e67e22',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { beginAtZero: true, title: { display: true, text: '金额(元)' } }
+        }
+    }
+});
+</script>
+{% endblock %}

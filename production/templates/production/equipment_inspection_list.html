@@ -1,0 +1,104 @@
+{% extends 'production/base.html' %}
+
+{% block title %}点检记录 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔍 设备点检记录</h2>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:equipment_inspection_list' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>设备</label>
+            <select name="equipment">
+                <option value="">全部设备</option>
+                {% for eq in equipments %}
+                <option value="{{ eq.pk }}" {% if equipment_filter == eq.pk|stringformat:"s" %}selected{% endif %}>{{ eq.equipment_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>点检类型</label>
+            <select name="type">
+                <option value="">全部类型</option>
+                {% for value, label in INSPECTION_TYPE_CHOICES %}
+                <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>点检结果</label>
+            <select name="result">
+                <option value="">全部结果</option>
+                {% for value, label in INSPECTION_RESULT_CHOICES %}
+                <option value="{{ value }}" {% if result_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:equipment_inspection_list' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="actions-bar">
+    <a href="{% url 'production:equipment_list' %}" class="btn btn-success">➕ 选择设备添加点检</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>设备</th>
+                <th>点检日期</th>
+                <th>类型</th>
+                <th>温度(°C)</th>
+                <th>振动(mm/s)</th>
+                <th>噪音(dB)</th>
+                <th>压力(MPa)</th>
+                <th>结果</th>
+                <th>点检人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for insp in inspections %}
+            <tr>
+                <td>{{ insp.equipment.equipment_name }}</td>
+                <td>{{ insp.inspection_date }}</td>
+                <td>{{ insp.get_inspection_type_display }}</td>
+                <td>{{ insp.temperature|default:"-" }}</td>
+                <td>{{ insp.vibration|default:"-" }}</td>
+                <td>{{ insp.noise|default:"-" }}</td>
+                <td>{{ insp.pressure|default:"-" }}</td>
+                <td>
+                    {% if insp.result == 'normal' %}
+                    <span class="badge badge-success">正常</span>
+                    {% elif insp.result == 'warning' %}
+                    <span class="badge badge-warning">注意</span>
+                    {% else %}
+                    <span class="badge badge-danger">异常</span>
+                    {% endif %}
+                </td>
+                <td>{{ insp.inspector|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:equipment_detail' insp.equipment.pk %}" class="btn btn-sm btn-primary">查看设备</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无点检记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

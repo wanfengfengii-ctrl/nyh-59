@@ -1,0 +1,148 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{{ part.part_name }} - 备件详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📦 备件详情 - {{ part.part_name }}</h2>
+
+<div class="card">
+    <h3 class="card-title">基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">备件编号</div>
+            <div class="value">{{ part.part_code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">备件名称</div>
+            <div class="value">{{ part.part_name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">备件类型</div>
+            <div class="value">{{ part.get_part_type_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">规格型号</div>
+            <div class="value">{{ part.specification|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">计量单位</div>
+            <div class="value">{{ part.unit }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">单价</div>
+            <div class="value">¥{{ part.unit_price }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">当前库存</div>
+            <div class="value">
+                {% if part.current_stock <= 0 %}
+                <span style="color: #e74c3c; font-weight: bold;">{{ part.current_stock }}</span>
+                {% elif part.current_stock <= part.safety_stock %}
+                <span style="color: #f39c12; font-weight: bold;">{{ part.current_stock }}</span>
+                {% else %}
+                {{ part.current_stock }}
+                {% endif %}
+                {{ part.unit }}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">安全库存</div>
+            <div class="value">{{ part.safety_stock|default:0 }} {{ part.unit }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">最高库存</div>
+            <div class="value">{{ part.max_stock|default:0 }} {{ part.unit }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">库存价值</div>
+            <div class="value" style="color: #e67e22;">¥{{ part.current_stock|floatformat:2 }} * {{ part.unit_price }} = ¥{% widthratio part.current_stock 1 part.unit_price %}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">供应商</div>
+            <div class="value">{{ part.supplier|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">生产厂家</div>
+            <div class="value">{{ part.manufacturer|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">存放位置</div>
+            <div class="value">{{ part.location|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">状态</div>
+            <div class="value">
+                {% if part.is_active %}
+                <span class="badge badge-success">启用</span>
+                {% else %}
+                <span class="badge badge-secondary">停用</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% if part.remarks %}
+    <div style="margin-top: 15px;">
+        <strong>备注：</strong>{{ part.remarks }}
+    </div>
+    {% endif %}
+    <div style="margin-top: 20px;">
+        <a href="{% url 'production:spare_part_edit' part.pk %}" class="btn btn-warning">编辑备件</a>
+        <a href="{% url 'production:spare_part_list' %}" class="btn btn-primary">返回列表</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">适用设备</h3>
+    {% if applicable_equipments %}
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        {% for eq in applicable_equipments %}
+        <a href="{% url 'production:equipment_detail' eq.pk %}" class="badge badge-info" style="padding: 8px 12px; font-size: 14px;">
+            {{ eq.equipment_name }}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p style="color: #999;">暂无关联设备</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">更换记录</h3>
+    {% if replacements %}
+    <table>
+        <thead>
+            <tr>
+                <th>更换单号</th>
+                <th>设备</th>
+                <th>数量</th>
+                <th>单价</th>
+                <th>费用</th>
+                <th>更换日期</th>
+                <th>原因</th>
+                <th>操作人</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rep in replacements %}
+            <tr>
+                <td>{{ rep.replacement_code }}</td>
+                <td>
+                    <a href="{% url 'production:equipment_detail' rep.equipment.pk %}" style="color: #667eea;">
+                        {{ rep.equipment.equipment_name }}
+                    </a>
+                </td>
+                <td>{{ rep.quantity }} {{ part.unit }}</td>
+                <td>¥{{ rep.unit_price }}</td>
+                <td>¥{{ rep.total_cost }}</td>
+                <td>{{ rep.replacement_date }}</td>
+                <td>{{ rep.reason|default:"-" }}</td>
+                <td>{{ rep.operator|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无更换记录</p>
+    {% endif %}
+</div>
+{% endblock %}

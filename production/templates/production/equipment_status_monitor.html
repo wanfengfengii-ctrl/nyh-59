@@ -1,0 +1,160 @@
+{% extends 'production/base.html' %}
+
+{% block title %}设备运行状态监测 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📡 设备运行状态监测</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(5, 1fr); margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ running_count }}</div>
+        <div class="stat-label">运行中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ standby_count }}</div>
+        <div class="stat-label">待机</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ fault_count }}</div>
+        <div class="stat-label">故障</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #3498db;">{{ maintenance_count }}</div>
+        <div class="stat-label">保养中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #95a5a6;">{{ shutdown_count }}</div>
+        <div class="stat-label">停机</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:equipment_status_monitor' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>工序</label>
+            <select name="process">
+                <option value="">全部工序</option>
+                {% for value, label in PROCESS_CHOICES %}
+                <option value="{{ value }}" {% if process_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>状态</label>
+            <select name="status">
+                <option value="">全部状态</option>
+                {% for value, label in EQUIPMENT_STATUS_CHOICES %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:equipment_status_monitor' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="card">
+    <h3 class="card-title">设备状态概览</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>设备编号</th>
+                <th>设备名称</th>
+                <th>工序</th>
+                <th>当前状态</th>
+                <th>运行时长(h)</th>
+                <th>温度(℃)</th>
+                <th>压力(MPa)</th>
+                <th>振动(mm/s)</th>
+                <th>最后更新</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for eq in equipments %}
+            <tr>
+                <td><strong>{{ eq.equipment_code }}</strong></td>
+                <td>{{ eq.equipment_name }}</td>
+                <td>{{ eq.get_process_display }}</td>
+                <td>
+                    {% if eq.current_status == 'running' %}
+                    <span class="badge badge-success">运行中</span>
+                    {% elif eq.current_status == 'standby' %}
+                    <span class="badge badge-warning">待机</span>
+                    {% elif eq.current_status == 'fault' %}
+                    <span class="badge badge-danger">故障</span>
+                    {% elif eq.current_status == 'maintenance' %}
+                    <span class="badge badge-info">保养中</span>
+                    {% else %}
+                    <span class="badge badge-secondary">停机</span>
+                    {% endif %}
+                </td>
+                <td>{% if eq.total_run_time %}{{ eq.total_run_time|floatformat:1 }}{% else %}0{% endif %}</td>
+                <td>
+                    {% if eq.latest_status %}
+                    {% if eq.latest_status.temperature and eq.latest_status.temperature > eq.rated_temperature|default:100 %}
+                    <span style="color: #e74c3c; font-weight: bold;">{{ eq.latest_status.temperature }}</span>
+                    {% else %}
+                    {{ eq.latest_status.temperature|default:"-" }}
+                    {% endif %}
+                    {% else %}-{% endif %}
+                </td>
+                <td>
+                    {% if eq.latest_status %}{{ eq.latest_status.pressure|default:"-" }}{% else %}-{% endif %}
+                </td>
+                <td>
+                    {% if eq.latest_status %}
+                    {% if eq.latest_status.vibration and eq.latest_status.vibration > 7 %}
+                    <span style="color: #e74c3c; font-weight: bold;">{{ eq.latest_status.vibration }}</span>
+                    {% else %}
+                    {{ eq.latest_status.vibration|default:"-" }}
+                    {% endif %}
+                    {% else %}-{% endif %}
+                </td>
+                <td>
+                    {% if eq.latest_status %}
+                    {{ eq.latest_status.record_time|date:"Y-m-d H:i" }}
+                    {% else %}-{% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'production:equipment_status_record_create' eq.pk %}" class="btn btn-sm btn-primary">录入</a>
+                    <a href="{% url 'production:equipment_detail' eq.pk %}" class="btn btn-sm btn-warning">详情</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无设备数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3 class="card-title">设备运行状态统计</h3>
+    <canvas id="statusChart" style="max-height: 350px;"></canvas>
+</div>
+
+<script>
+new Chart(document.getElementById('statusChart'), {
+    type: 'doughnut',
+    data: {
+        labels: ['运行中', '待机', '故障', '保养中', '停机'],
+        datasets: [{
+            data: [{{ running_count }}, {{ standby_count }}, {{ fault_count }}, {{ maintenance_count }}, {{ shutdown_count }}],
+            backgroundColor: ['#27ae60', '#f39c12', '#e74c3c', '#3498db', '#95a5a6']
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

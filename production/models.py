@@ -1648,3 +1648,690 @@ class SourceCostStats(models.Model):
             stats_obj.save()
 
         return cls.objects.all()
+
+
+EQUIPMENT_STATUS_CHOICES = [
+    ('running', '运行中'),
+    ('standby', '备用'),
+    ('maintenance', '维护中'),
+    ('fault', '故障'),
+    ('scrapped', '已报废'),
+]
+
+IMPORTANCE_LEVEL_CHOICES = [
+    ('key', '关键设备'),
+    ('important', '重要设备'),
+    ('general', '一般设备'),
+]
+
+INSPECTION_TYPE_CHOICES = [
+    ('daily', '日常点检'),
+    ('weekly', '周检'),
+    ('monthly', '月检'),
+    ('special', '专项检查'),
+]
+
+INSPECTION_RESULT_CHOICES = [
+    ('normal', '正常'),
+    ('abnormal', '异常'),
+    ('fault', '故障'),
+]
+
+RUN_STATUS_CHOICES = [
+    ('normal', '正常运行'),
+    ('warning', '预警状态'),
+    ('alarm', '报警状态'),
+    ('stopped', '已停机'),
+]
+
+FAULT_LEVEL_CHOICES = [
+    ('minor', '轻微故障'),
+    ('general', '一般故障'),
+    ('major', '重大故障'),
+    ('severe', '严重故障'),
+]
+
+FAULT_STATUS_CHOICES = [
+    ('reported', '已上报'),
+    ('diagnosing', '诊断中'),
+    ('repairing', '维修中'),
+    ('testing', '试运行'),
+    ('resolved', '已解决'),
+    ('closed', '已关闭'),
+]
+
+MAINTENANCE_TYPE_CHOICES = [
+    ('preventive', '预防性保养'),
+    ('corrective', '纠正性保养'),
+    ('predictive', '预测性保养'),
+    ('overhaul', '大修'),
+]
+
+MAINTENANCE_PLAN_STATUS_CHOICES = [
+    ('pending', '待执行'),
+    ('in_progress', '进行中'),
+    ('completed', '已完成'),
+    ('cancelled', '已取消'),
+    ('overdue', '已逾期'),
+]
+
+REPAIR_TYPE_CHOICES = [
+    ('emergency', '紧急维修'),
+    ('planned', '计划维修'),
+    ('improvement', '改善维修'),
+]
+
+REPAIR_STATUS_CHOICES = [
+    ('pending', '待处理'),
+    ('processing', '维修中'),
+    ('completed', '已完成'),
+    ('cancelled', '已取消'),
+]
+
+SPARE_PART_TYPE_CHOICES = [
+    ('mechanical', '机械备件'),
+    ('electrical', '电气备件'),
+    ('instrument', '仪表备件'),
+    ('seal', '密封备件'),
+    ('other', '其他备件'),
+]
+
+STATS_TYPE_CHOICES = [
+    ('daily', '日统计'),
+    ('weekly', '周统计'),
+    ('monthly', '月统计'),
+]
+
+
+class Equipment(models.Model):
+    equipment_code = models.CharField('设备编号', max_length=50, unique=True)
+    equipment_name = models.CharField('设备名称', max_length=100)
+    equipment_type = models.CharField('设备类型', max_length=50)
+    stage_type = models.CharField('所属工序', max_length=20, choices=STAGE_CHOICES)
+    model_spec = models.CharField('规格型号', max_length=100, blank=True)
+    manufacturer = models.CharField('生产厂家', max_length=100, blank=True)
+    supplier = models.CharField('供应商', max_length=100, blank=True)
+    purchase_date = models.DateField('购置日期', null=True, blank=True)
+    commission_date = models.DateField('启用日期', null=True, blank=True)
+    original_value = models.FloatField('设备原值(元)', default=0)
+    depreciation_years = models.IntegerField('折旧年限(年)', default=10)
+    location = models.CharField('安装位置', max_length=100, blank=True)
+    status = models.CharField('设备状态', max_length=20, choices=EQUIPMENT_STATUS_CHOICES, default='standby')
+    importance_level = models.CharField('重要程度', max_length=20, choices=IMPORTANCE_LEVEL_CHOICES, default='general')
+    rated_power = models.FloatField('额定功率(kW)', null=True, blank=True)
+    rated_capacity = models.FloatField('额定产能(kg/h)', null=True, blank=True)
+    responsible_person = models.CharField('责任人', max_length=50, blank=True)
+    technical_params = models.TextField('技术参数', blank=True)
+    operation_instructions = models.TextField('操作规程', blank=True)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['equipment_code']
+        verbose_name = '设备档案'
+        verbose_name_plural = '设备档案'
+
+    def __str__(self):
+        return f'{self.equipment_code} - {self.equipment_name}'
+
+    def clean(self):
+        if self.original_value < 0:
+            raise ValidationError('设备原值不能为负数')
+        if self.depreciation_years <= 0:
+            raise ValidationError('折旧年限必须大于0')
+        if self.purchase_date and self.commission_date:
+            if self.commission_date < self.purchase_date:
+                raise ValidationError('启用日期不能早于购置日期')
+
+    def get_current_status_display(self):
+        status_map = dict(EQUIPMENT_STATUS_CHOICES)
+        return status_map.get(self.status, '未知')
+
+    def get_running_hours(self, start_date=None, end_date=None):
+        records = self.status_records.filter(is_running=True)
+        if start_date:
+            records = records.filter(record_time__date__gte=start_date)
+        if end_date:
+            records = records.filter(record_time__date__lte=end_date)
+        return records.count()
+
+    def get_fault_count(self, start_date=None, end_date=None):
+        faults = self.fault_records.all()
+        if start_date:
+            faults = faults.filter(occur_time__date__gte=start_date)
+        if end_date:
+            faults = faults.filter(occur_time__date__lte=end_date)
+        return faults.count()
+
+    def get_total_repair_cost(self, start_date=None, end_date=None):
+        repairs = self.repair_records.filter(status='completed')
+        if start_date:
+            repairs = repairs.filter(apply_date__gte=start_date)
+        if end_date:
+            repairs = repairs.filter(apply_date__lte=end_date)
+        return repairs.aggregate(total=Sum('total_cost'))['total'] or 0
+
+
+class EquipmentInspection(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='inspection_records')
+    inspection_type = models.CharField('点检类型', max_length=20, choices=INSPECTION_TYPE_CHOICES, default='daily')
+    inspection_date = models.DateField('点检日期', default=date.today)
+    inspector = models.CharField('点检人员', max_length=50)
+    result = models.CharField('检查结果', max_length=20, choices=INSPECTION_RESULT_CHOICES, default='normal')
+    temperature = models.FloatField('温度(°C)', null=True, blank=True)
+    vibration = models.FloatField('振动(mm/s)', null=True, blank=True)
+    noise = models.FloatField('噪音(dB)', null=True, blank=True)
+    pressure = models.FloatField('压力(MPa)', null=True, blank=True)
+    flow_rate = models.FloatField('流量(m³/h)', null=True, blank=True)
+    current = models.FloatField('电流(A)', null=True, blank=True)
+    voltage = models.FloatField('电压(V)', null=True, blank=True)
+    abnormal_description = models.TextField('异常描述', blank=True)
+    handling_measures = models.TextField('处理措施', blank=True)
+    has_fault = models.BooleanField('是否故障', default=False)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-inspection_date']
+        verbose_name = '设备点检记录'
+        verbose_name_plural = '设备点检记录'
+
+    def __str__(self):
+        return f'{self.equipment.equipment_name} - {self.get_inspection_type_display()} - {self.inspection_date}'
+
+    def clean(self):
+        if self.inspection_date > date.today():
+            raise ValidationError('点检日期不能晚于当前日期')
+        if self.result in ['abnormal', 'fault'] and not self.abnormal_description:
+            raise ValidationError('检查结果为异常或故障时，必须填写异常描述')
+        if self.temperature is not None and self.temperature < -50:
+            raise ValidationError('温度值不合法')
+        if self.vibration is not None and self.vibration < 0:
+            raise ValidationError('振动值不能为负数')
+        if self.noise is not None and self.noise < 0:
+            raise ValidationError('噪音值不能为负数')
+
+
+class EquipmentStatusRecord(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='status_records')
+    batch = models.ForeignKey(RawMaterialBatch, on_delete=models.SET_NULL, verbose_name='关联批次',
+                              related_name='equipment_status_records', null=True, blank=True)
+    record_time = models.DateTimeField('记录时间', default=timezone.now)
+    run_status = models.CharField('运行状态', max_length=20, choices=RUN_STATUS_CHOICES, default='normal')
+    is_running = models.BooleanField('是否运行', default=True)
+    output_value = models.FloatField('瞬时产量(kg/h)', null=True, blank=True)
+    temperature = models.FloatField('温度(°C)', null=True, blank=True)
+    pressure = models.FloatField('压力(MPa)', null=True, blank=True)
+    vibration = models.FloatField('振动(mm/s)', null=True, blank=True)
+    current = models.FloatField('电流(A)', null=True, blank=True)
+    voltage = models.FloatField('电压(V)', null=True, blank=True)
+    power = models.FloatField('功率(kW)', null=True, blank=True)
+    rpm = models.FloatField('转速(r/min)', null=True, blank=True)
+    flow_rate = models.FloatField('流量(m³/h)', null=True, blank=True)
+    liquid_level = models.FloatField('液位(%)', null=True, blank=True)
+    alarm_message = models.CharField('报警信息', max_length=200, blank=True)
+    is_alarm = models.BooleanField('是否报警', default=False)
+    stage_type = models.CharField('工序阶段', max_length=20, choices=STAGE_CHOICES, blank=True, null=True)
+    operator = models.CharField('记录人', max_length=50, blank=True)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-record_time']
+        verbose_name = '设备运行状态记录'
+        verbose_name_plural = '设备运行状态记录'
+
+    def __str__(self):
+        return f'{self.equipment.equipment_name} - {self.record_time.strftime("%Y-%m-%d %H:%M")}'
+
+
+class FaultRecord(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='fault_records')
+    affected_batches = models.ManyToManyField(RawMaterialBatch, verbose_name='影响批次',
+                                               related_name='equipment_faults', blank=True)
+    fault_code = models.CharField('故障编号', max_length=50, unique=True)
+    fault_level = models.CharField('故障等级', max_length=20, choices=FAULT_LEVEL_CHOICES, default='general')
+    fault_status = models.CharField('故障状态', max_length=20, choices=FAULT_STATUS_CHOICES, default='reported')
+    stage_type = models.CharField('发生工序', max_length=20, choices=STAGE_CHOICES)
+    occur_time = models.DateTimeField('发生时间', default=timezone.now)
+    discovery_person = models.CharField('发现人', max_length=50, blank=True)
+    fault_phenomenon = models.TextField('故障现象')
+    fault_cause = models.TextField('故障原因', blank=True)
+    fault_location = models.CharField('故障部位', max_length=100, blank=True)
+    impact_description = models.TextField('影响描述', blank=True)
+    is_production_impacted = models.BooleanField('是否影响生产', default=False)
+    resolve_time = models.DateTimeField('解决时间', null=True, blank=True)
+    resolver = models.CharField('处理人', max_length=50, blank=True)
+    handling_measures = models.TextField('处理措施', blank=True)
+    prevention_measures = models.TextField('预防措施', blank=True)
+    downtime_hours = models.FloatField('停机时长(小时)', default=0)
+    repair_cost = models.FloatField('维修费用(元)', default=0)
+    production_loss = models.FloatField('生产损失(元)', default=0)
+    total_loss = models.FloatField('总损失(元)', default=0)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-occur_time']
+        verbose_name = '故障记录'
+        verbose_name_plural = '故障记录'
+
+    def __str__(self):
+        return f'{self.fault_code} - {self.equipment.equipment_name}'
+
+    def clean(self):
+        if self.downtime_hours < 0:
+            raise ValidationError('停机时长不能为负数')
+        if self.repair_cost < 0:
+            raise ValidationError('维修费用不能为负数')
+        if self.production_loss < 0:
+            raise ValidationError('生产损失不能为负数')
+        if self.resolve_time and self.resolve_time < self.occur_time:
+            raise ValidationError('解决时间不能早于发生时间')
+
+    def save(self, *args, **kwargs):
+        self.total_loss = round(self.repair_cost + self.production_loss, 2)
+        super().save(*args, **kwargs)
+
+
+class MaintenancePlan(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='maintenance_plans')
+    plan_code = models.CharField('计划编号', max_length=50, unique=True)
+    plan_name = models.CharField('计划名称', max_length=100)
+    maintenance_type = models.CharField('保养类型', max_length=20, choices=MAINTENANCE_TYPE_CHOICES, default='preventive')
+    plan_date = models.DateField('计划日期')
+    cycle_days = models.IntegerField('周期(天)', default=30, help_text='0表示单次计划')
+    content = models.TextField('保养内容')
+    standard = models.TextField('保养标准', blank=True)
+    estimated_hours = models.FloatField('预计工时(小时)', default=0)
+    estimated_cost = models.FloatField('预计费用(元)', default=0)
+    responsible_person = models.CharField('负责人', max_length=50, blank=True)
+    status = models.CharField('计划状态', max_length=20, choices=MAINTENANCE_PLAN_STATUS_CHOICES, default='pending')
+    actual_date = models.DateField('实际完成日期', null=True, blank=True)
+    actual_hours = models.FloatField('实际工时(小时)', default=0)
+    actual_cost = models.FloatField('实际费用(元)', default=0)
+    completion_description = models.TextField('完成情况说明', blank=True)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-plan_date']
+        verbose_name = '保养计划'
+        verbose_name_plural = '保养计划'
+
+    def __str__(self):
+        return f'{self.plan_code} - {self.plan_name}'
+
+    def clean(self):
+        if self.estimated_hours < 0:
+            raise ValidationError('预计工时不能为负数')
+        if self.estimated_cost < 0:
+            raise ValidationError('预计费用不能为负数')
+        if self.actual_hours < 0:
+            raise ValidationError('实际工时不能为负数')
+        if self.actual_cost < 0:
+            raise ValidationError('实际费用不能为负数')
+        if self.cycle_days < 0:
+            raise ValidationError('周期天数不能为负数')
+        if self.status == 'completed' and not self.actual_date:
+            raise ValidationError('已完成的计划必须填写实际完成日期')
+        if self.actual_date and self.actual_date < self.plan_date:
+            raise ValidationError('实际完成日期不能早于计划日期')
+
+
+class MaintenanceRecord(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='maintenance_records')
+    plan = models.ForeignKey(MaintenancePlan, on_delete=models.SET_NULL, verbose_name='保养计划',
+                              related_name='records', null=True, blank=True)
+    record_code = models.CharField('记录编号', max_length=50, unique=True)
+    maintenance_type = models.CharField('保养类型', max_length=20, choices=MAINTENANCE_TYPE_CHOICES, default='preventive')
+    start_time = models.DateTimeField('开始时间', default=timezone.now)
+    end_time = models.DateTimeField('结束时间', null=True, blank=True)
+    content = models.TextField('保养内容')
+    result = models.TextField('保养结果', blank=True)
+    operator = models.CharField('作业人员', max_length=100)
+    work_hours = models.FloatField('工时(小时)', default=0)
+    labor_cost = models.FloatField('人工费用(元)', default=0)
+    parts_cost = models.FloatField('备件费用(元)', default=0)
+    other_cost = models.FloatField('其他费用(元)', default=0)
+    total_cost = models.FloatField('总费用(元)', default=0)
+    has_replacement = models.BooleanField('是否更换备件', default=False)
+    quality_rating = models.IntegerField('质量评分(1-10)', null=True, blank=True)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-start_time']
+        verbose_name = '保养记录'
+        verbose_name_plural = '保养记录'
+
+    def __str__(self):
+        return f'{self.record_code} - {self.equipment.equipment_name}'
+
+    def clean(self):
+        if self.work_hours < 0:
+            raise ValidationError('工时不能为负数')
+        if self.labor_cost < 0:
+            raise ValidationError('人工费用不能为负数')
+        if self.parts_cost < 0:
+            raise ValidationError('备件费用不能为负数')
+        if self.other_cost < 0:
+            raise ValidationError('其他费用不能为负数')
+        if self.end_time and self.end_time < self.start_time:
+            raise ValidationError('结束时间不能早于开始时间')
+        if self.quality_rating is not None:
+            if self.quality_rating < 1 or self.quality_rating > 10:
+                raise ValidationError('质量评分应在1-10之间')
+
+    def save(self, *args, **kwargs):
+        self.total_cost = round(self.labor_cost + self.parts_cost + self.other_cost, 2)
+        super().save(*args, **kwargs)
+
+
+class RepairRecord(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='repair_records')
+    fault = models.ForeignKey(FaultRecord, on_delete=models.SET_NULL, verbose_name='关联故障',
+                              related_name='repairs', null=True, blank=True)
+    repair_code = models.CharField('维修单号', max_length=50, unique=True)
+    repair_type = models.CharField('维修类型', max_length=20, choices=REPAIR_TYPE_CHOICES, default='planned')
+    repair_content = models.TextField('维修内容')
+    repair_method = models.TextField('维修方法', blank=True)
+    applicant = models.CharField('申请人', max_length=50, blank=True)
+    apply_date = models.DateField('申请日期', default=date.today)
+    start_time = models.DateTimeField('开始时间', null=True, blank=True)
+    end_time = models.DateTimeField('结束时间', null=True, blank=True)
+    repair_person = models.CharField('维修人员', max_length=100, blank=True)
+    work_hours = models.FloatField('工时(小时)', default=0)
+    labor_cost = models.FloatField('人工费用(元)', default=0)
+    parts_cost = models.FloatField('备件费用(元)', default=0)
+    material_cost = models.FloatField('材料费用(元)', default=0)
+    other_cost = models.FloatField('其他费用(元)', default=0)
+    total_cost = models.FloatField('总费用(元)', default=0)
+    has_replacement = models.BooleanField('是否更换备件', default=False)
+    replacement_details = models.TextField('更换备件明细', blank=True)
+    quality_check = models.BooleanField('质量验收', default=False)
+    inspector = models.CharField('验收人', max_length=50, blank=True)
+    inspection_date = models.DateField('验收日期', null=True, blank=True)
+    inspection_opinion = models.TextField('验收意见', blank=True)
+    status = models.CharField('维修状态', max_length=20, choices=REPAIR_STATUS_CHOICES, default='pending')
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-apply_date']
+        verbose_name = '维修登记'
+        verbose_name_plural = '维修登记'
+
+    def __str__(self):
+        return f'{self.repair_code} - {self.equipment.equipment_name}'
+
+    def clean(self):
+        if self.apply_date > date.today():
+            raise ValidationError('申请日期不能晚于当前日期')
+        if self.work_hours < 0:
+            raise ValidationError('工时不能为负数')
+        if self.labor_cost < 0:
+            raise ValidationError('人工费用不能为负数')
+        if self.parts_cost < 0:
+            raise ValidationError('备件费用不能为负数')
+        if self.material_cost < 0:
+            raise ValidationError('材料费用不能为负数')
+        if self.other_cost < 0:
+            raise ValidationError('其他费用不能为负数')
+        if self.start_time and self.end_time and self.end_time < self.start_time:
+            raise ValidationError('结束时间不能早于开始时间')
+        if self.quality_check and not self.inspector:
+            raise ValidationError('通过质量验收必须填写验收人')
+        if self.inspection_date and self.inspection_date < self.apply_date:
+            raise ValidationError('验收日期不能早于申请日期')
+
+    def save(self, *args, **kwargs):
+        self.total_cost = round(self.labor_cost + self.parts_cost + self.material_cost + self.other_cost, 2)
+        super().save(*args, **kwargs)
+
+
+class SparePart(models.Model):
+    part_code = models.CharField('备件编号', max_length=50, unique=True)
+    part_name = models.CharField('备件名称', max_length=100)
+    part_type = models.CharField('备件类型', max_length=20, choices=SPARE_PART_TYPE_CHOICES, default='mechanical')
+    specification = models.CharField('规格型号', max_length=100, blank=True)
+    unit = models.CharField('计量单位', max_length=20, default='个')
+    unit_price = models.FloatField('单价(元)', default=0)
+    current_stock = models.FloatField('当前库存', default=0)
+    safety_stock = models.FloatField('安全库存', default=0)
+    max_stock = models.FloatField('最大库存', default=0)
+    supplier = models.CharField('供应商', max_length=100, blank=True)
+    manufacturer = models.CharField('生产厂家', max_length=100, blank=True)
+    location = models.CharField('存放位置', max_length=100, blank=True)
+    applicable_equipment = models.ManyToManyField(Equipment, verbose_name='适用设备',
+                                                   related_name='applicable_parts', blank=True)
+    is_active = models.BooleanField('是否启用', default=True)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['part_code']
+        verbose_name = '备件档案'
+        verbose_name_plural = '备件档案'
+
+    def __str__(self):
+        return f'{self.part_code} - {self.part_name}'
+
+    def clean(self):
+        if self.unit_price < 0:
+            raise ValidationError('单价不能为负数')
+        if self.current_stock < 0:
+            raise ValidationError('当前库存不能为负数')
+        if self.safety_stock < 0:
+            raise ValidationError('安全库存不能为负数')
+        if self.max_stock < 0:
+            raise ValidationError('最大库存不能为负数')
+
+    def get_stock_status(self):
+        if self.current_stock <= 0:
+            return 'out_of_stock'
+        elif self.safety_stock > 0 and self.current_stock <= self.safety_stock:
+            return 'low_stock'
+        elif self.max_stock > 0 and self.current_stock >= self.max_stock:
+            return 'overstock'
+        return 'normal'
+
+    def get_stock_status_display(self):
+        status = self.get_stock_status()
+        status_map = {
+            'out_of_stock': '缺货',
+            'low_stock': '库存不足',
+            'overstock': '库存积压',
+            'normal': '正常',
+        }
+        return status_map.get(status, '未知')
+
+
+class SparePartReplacement(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='part_replacements')
+    spare_part = models.ForeignKey(SparePart, on_delete=models.PROTECT, verbose_name='备件', related_name='replacements')
+    maintenance_record = models.ForeignKey(MaintenanceRecord, on_delete=models.SET_NULL, verbose_name='关联保养记录',
+                                            related_name='part_replacements', null=True, blank=True)
+    repair_record = models.ForeignKey(RepairRecord, on_delete=models.SET_NULL, verbose_name='关联维修单',
+                                       related_name='part_replacements', null=True, blank=True)
+    replacement_code = models.CharField('更换单号', max_length=50, unique=True)
+    replacement_date = models.DateField('更换日期', default=date.today)
+    quantity = models.FloatField('更换数量', default=1)
+    unit_price = models.FloatField('单价(元)', default=0)
+    total_cost = models.FloatField('总费用(元)', default=0)
+    reason = models.TextField('更换原因', blank=True)
+    old_part_status = models.CharField('旧件状态', max_length=50, blank=True)
+    old_part_disposal = models.CharField('旧件处理方式', max_length=100, blank=True)
+    operator = models.CharField('更换人员', max_length=50, blank=True)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-replacement_date']
+        verbose_name = '备件更换记录'
+        verbose_name_plural = '备件更换记录'
+
+    def __str__(self):
+        return f'{self.replacement_code} - {self.spare_part.part_name}'
+
+    def clean(self):
+        if self.replacement_date > date.today():
+            raise ValidationError('更换日期不能晚于当前日期')
+        if self.quantity <= 0:
+            raise ValidationError('更换数量必须大于0')
+        if self.unit_price < 0:
+            raise ValidationError('单价不能为负数')
+
+    def save(self, *args, **kwargs):
+        self.total_cost = round(self.quantity * self.unit_price, 2)
+        super().save(*args, **kwargs)
+
+
+class EquipmentStats(models.Model):
+    equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, verbose_name='设备', related_name='stats')
+    stats_date = models.DateField('统计日期', default=date.today)
+    stats_type = models.CharField('统计类型', max_length=20, choices=STATS_TYPE_CHOICES, default='daily')
+    run_hours = models.FloatField('运行时长(小时)', default=0)
+    standby_hours = models.FloatField('待机时长(小时)', default=0)
+    fault_hours = models.FloatField('故障时长(小时)', default=0)
+    maintenance_hours = models.FloatField('维护时长(小时)', default=0)
+    availability_rate = models.FloatField('设备可用率(%)', default=100)
+    fault_count = models.IntegerField('故障次数', default=0)
+    repair_count = models.IntegerField('维修次数', default=0)
+    maintenance_count = models.IntegerField('保养次数', default=0)
+    total_repair_cost = models.FloatField('维修总费用(元)', default=0)
+    total_maintenance_cost = models.FloatField('保养总费用(元)', default=0)
+    total_cost = models.FloatField('总费用(元)', default=0)
+    avg_mtbf = models.FloatField('平均故障间隔(小时)', null=True, blank=True)
+    avg_mttr = models.FloatField('平均修复时间(小时)', null=True, blank=True)
+    production_output = models.FloatField('产量(kg)', default=0)
+    energy_consumption = models.FloatField('能耗(kWh)', default=0)
+    last_updated = models.DateTimeField('最后更新', auto_now=True)
+
+    class Meta:
+        ordering = ['-stats_date']
+        verbose_name = '设备统计数据'
+        verbose_name_plural = '设备统计数据'
+        unique_together = ['equipment', 'stats_date', 'stats_type']
+
+    def __str__(self):
+        return f'{self.equipment.equipment_name} - {self.stats_date} - {self.get_stats_type_display()}'
+
+    def clean(self):
+        for field_name in ['run_hours', 'standby_hours', 'fault_hours', 'maintenance_hours']:
+            value = getattr(self, field_name)
+            if value < 0:
+                raise ValidationError(f'{self._meta.get_field(field_name).verbose_name}不能为负数')
+        if self.fault_count < 0:
+            raise ValidationError('故障次数不能为负数')
+        if self.repair_count < 0:
+            raise ValidationError('维修次数不能为负数')
+        if self.maintenance_count < 0:
+            raise ValidationError('保养次数不能为负数')
+        if self.total_repair_cost < 0:
+            raise ValidationError('维修总费用不能为负数')
+        if self.total_maintenance_cost < 0:
+            raise ValidationError('保养总费用不能为负数')
+        if not (0 <= self.availability_rate <= 100):
+            raise ValidationError('设备可用率应在0-100%之间')
+
+    def save(self, *args, **kwargs):
+        self.total_cost = round(self.total_repair_cost + self.total_maintenance_cost, 2)
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def calculate_stats(cls, equipment, stats_date, stats_type='daily'):
+        from datetime import timedelta
+        if stats_type == 'daily':
+            start_date = stats_date
+            end_date = stats_date
+        elif stats_type == 'weekly':
+            start_date = stats_date - timedelta(days=stats_date.weekday())
+            end_date = start_date + timedelta(days=6)
+        else:
+            start_date = stats_date.replace(day=1)
+            if start_date.month == 12:
+                end_date = start_date.replace(year=start_date.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                end_date = start_date.replace(month=start_date.month + 1, day=1) - timedelta(days=1)
+
+        faults = FaultRecord.objects.filter(
+            equipment=equipment,
+            occur_time__date__gte=start_date,
+            occur_time__date__lte=end_date
+        )
+        repairs = RepairRecord.objects.filter(
+            equipment=equipment,
+            apply_date__gte=start_date,
+            apply_date__lte=end_date,
+            status='completed'
+        )
+        maintenances = MaintenanceRecord.objects.filter(
+            equipment=equipment,
+            start_time__date__gte=start_date,
+            start_time__date__lte=end_date
+        )
+
+        fault_count = faults.count()
+        repair_count = repairs.count()
+        maintenance_count = maintenances.count()
+        total_repair_cost = repairs.aggregate(total=Sum('total_cost'))['total'] or 0
+        total_maintenance_cost = maintenances.aggregate(total=Sum('total_cost'))['total'] or 0
+        fault_hours = faults.aggregate(total=Sum('downtime_hours'))['total'] or 0
+        maintenance_hours = maintenances.aggregate(total=Sum('work_hours'))['total'] or 0
+
+        total_days = (end_date - start_date).days + 1
+        total_hours = total_days * 24
+        available_hours = total_hours - fault_hours - maintenance_hours
+        availability_rate = round((available_hours / total_hours * 100), 2) if total_hours > 0 else 100
+
+        avg_mttr = None
+        if fault_count > 0 and fault_hours > 0:
+            avg_mttr = round(fault_hours / fault_count, 2)
+
+        avg_mtbf = None
+        if fault_count > 0 and available_hours > 0:
+            avg_mtbf = round(available_hours / fault_count, 2)
+
+        stats, created = cls.objects.get_or_create(
+            equipment=equipment,
+            stats_date=stats_date,
+            stats_type=stats_type,
+            defaults={
+                'run_hours': max(available_hours - 8 * total_days, 0),
+                'standby_hours': max(8 * total_days - maintenance_hours, 0),
+                'fault_hours': round(fault_hours, 2),
+                'maintenance_hours': round(maintenance_hours, 2),
+                'availability_rate': availability_rate,
+                'fault_count': fault_count,
+                'repair_count': repair_count,
+                'maintenance_count': maintenance_count,
+                'total_repair_cost': round(total_repair_cost, 2),
+                'total_maintenance_cost': round(total_maintenance_cost, 2),
+                'avg_mtbf': avg_mtbf,
+                'avg_mttr': avg_mttr,
+            }
+        )
+
+        if not created:
+            stats.run_hours = max(available_hours - 8 * total_days, 0)
+            stats.standby_hours = max(8 * total_days - maintenance_hours, 0)
+            stats.fault_hours = round(fault_hours, 2)
+            stats.maintenance_hours = round(maintenance_hours, 2)
+            stats.availability_rate = availability_rate
+            stats.fault_count = fault_count
+            stats.repair_count = repair_count
+            stats.maintenance_count = maintenance_count
+            stats.total_repair_cost = round(total_repair_cost, 2)
+            stats.total_maintenance_cost = round(total_maintenance_cost, 2)
+            stats.avg_mtbf = avg_mtbf
+            stats.avg_mttr = avg_mttr
+            stats.save()
+
+        return stats

@@ -1,0 +1,115 @@
+{% extends 'production/base.html' %}
+
+{% block title %}保养计划 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📅 设备保养计划</h2>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:maintenance_plan_list' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>设备</label>
+            <select name="equipment">
+                <option value="">全部设备</option>
+                {% for eq in equipments %}
+                <option value="{{ eq.pk }}" {% if equipment_filter == eq.pk|stringformat:"s" %}selected{% endif %}>{{ eq.equipment_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>保养类型</label>
+            <select name="type">
+                <option value="">全部类型</option>
+                {% for value, label in MAINTENANCE_TYPE_CHOICES %}
+                <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>计划状态</label>
+            <select name="status">
+                <option value="">全部状态</option>
+                {% for value, label in MAINTENANCE_PLAN_STATUS_CHOICES %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:maintenance_plan_list' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="actions-bar">
+    <a href="{% url 'production:equipment_list' %}" class="btn btn-success">➕ 选择设备创建计划</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>计划编号</th>
+                <th>计划名称</th>
+                <th>设备</th>
+                <th>类型</th>
+                <th>计划日期</th>
+                <th>周期</th>
+                <th>负责人</th>
+                <th>预计费用</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for plan in plans %}
+            <tr>
+                <td><strong>{{ plan.plan_code }}</strong></td>
+                <td>{{ plan.plan_name }}</td>
+                <td>{{ plan.equipment.equipment_name }}</td>
+                <td>{{ plan.get_maintenance_type_display }}</td>
+                <td>
+                    {% if plan.status == 'overdue' %}
+                    <span style="color: #e74c3c;">{{ plan.plan_date }}</span>
+                    {% else %}
+                    {{ plan.plan_date }}
+                    {% endif %}
+                </td>
+                <td>每{{ plan.cycle_days }}天</td>
+                <td>{{ plan.responsible_person|default:"-" }}</td>
+                <td>¥{{ plan.estimated_cost|default:0 }}</td>
+                <td>
+                    {% if plan.status == 'pending' %}
+                    <span class="badge badge-warning">待执行</span>
+                    {% elif plan.status == 'overdue' %}
+                    <span class="badge badge-danger">已逾期</span>
+                    {% elif plan.status == 'completed' %}
+                    <span class="badge badge-success">已完成</span>
+                    {% else %}
+                    <span class="badge badge-secondary">已取消</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if plan.status == 'pending' or plan.status == 'overdue' %}
+                    <a href="{% url 'production:maintenance_plan_complete' plan.pk %}" class="btn btn-sm btn-success">完成</a>
+                    {% endif %}
+                    <a href="{% url 'production:equipment_detail' plan.equipment.pk %}" class="btn btn-sm btn-primary">设备</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无保养计划
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

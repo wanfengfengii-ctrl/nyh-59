@@ -1,0 +1,108 @@
+{% extends 'production/base.html' %}
+
+{% block title %}添加点检记录 - {{ equipment.equipment_name }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔍 添加点检记录 - {{ equipment.equipment_name }}</h2>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>点检类型 *</label>
+                <select name="inspection_type" required>
+                    {% for value, label in INSPECTION_TYPE_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>点检日期 *</label>
+                <input type="date" name="inspection_date" value="{% now 'Y-m-d' %}" required>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>温度(°C)</label>
+                <input type="number" step="0.1" name="temperature" placeholder="请输入温度">
+            </div>
+            <div class="form-group">
+                <label>振动(mm/s)</label>
+                <input type="number" step="0.01" name="vibration" placeholder="请输入振动值">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>噪音(dB)</label>
+                <input type="number" step="0.1" name="noise" placeholder="请输入噪音值">
+            </div>
+            <div class="form-group">
+                <label>压力(MPa)</label>
+                <input type="number" step="0.01" name="pressure" placeholder="请输入压力值">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>流量(m³/h)</label>
+                <input type="number" step="0.01" name="flow_rate" placeholder="请输入流量">
+            </div>
+            <div class="form-group">
+                <label>电流(A)</label>
+                <input type="number" step="0.01" name="current" placeholder="请输入电流">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>电压(V)</label>
+                <input type="number" step="0.1" name="voltage" placeholder="请输入电压">
+            </div>
+            <div class="form-group">
+                <label>点检结果 *</label>
+                <select name="result" required>
+                    {% for value, label in INSPECTION_RESULT_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>点检人</label>
+            <input type="text" name="inspector" placeholder="请输入点检人姓名">
+        </div>
+        
+        <div class="form-group">
+            <label>异常描述</label>
+            <textarea name="abnormal_description" rows="3" placeholder="请描述发现的异常情况"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>处理措施</label>
+            <textarea name="handling_measures" rows="3" placeholder="请描述已采取的处理措施"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="has_fault">
+                <span>是否需要报修</span>
+            </label>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">提交点检记录</button>
+            <a href="{% url 'production:equipment_detail' equipment.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

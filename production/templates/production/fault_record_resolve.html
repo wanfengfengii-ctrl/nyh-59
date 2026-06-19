@@ -1,0 +1,90 @@
+{% extends 'production/base.html' %}
+
+{% block title %}解决故障 - {{ fault.fault_code }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">✅ 解决故障 - {{ fault.fault_code }}</h2>
+
+<div class="card">
+    <h3 class="card-title">故障信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">故障编号</div>
+            <div class="value">{{ fault.fault_code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">设备</div>
+            <div class="value">{{ fault.equipment.equipment_name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">故障等级</div>
+            <div class="value">
+                {% if fault.fault_level == 'critical' %}
+                <span class="badge badge-danger">严重</span>
+                {% elif fault.fault_level == 'major' %}
+                <span class="badge badge-warning">重大</span>
+                {% elif fault.fault_level == 'general' %}
+                <span class="badge badge-info">一般</span>
+                {% else %}
+                <span class="badge badge-success">轻微</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">发生时间</div>
+            <div class="value">{{ fault.occur_time|date:"Y-m-d H:i" }}</div>
+        </div>
+    </div>
+    <div style="margin-top: 10px;">
+        <strong>故障现象：</strong>{{ fault.fault_phenomenon }}
+    </div>
+</div>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>解决时间 *</label>
+                <input type="datetime-local" name="resolve_time" required>
+            </div>
+            <div class="form-group">
+                <label>解决人 *</label>
+                <input type="text" name="resolver" required placeholder="请输入解决人姓名">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>停机时长(小时)</label>
+                <input type="number" step="0.1" name="downtime_hours" value="{{ fault.downtime_hours|default:0 }}">
+            </div>
+            <div class="form-group">
+                <label>维修费用(元)</label>
+                <input type="number" step="0.01" name="repair_cost" value="{{ fault.repair_cost|default:0 }}">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>生产损失(元)</label>
+            <input type="number" step="0.01" name="production_loss" value="{{ fault.production_loss|default:0 }}">
+        </div>
+        
+        <div class="form-group">
+            <label>处理措施 *</label>
+            <textarea name="handling_measures" rows="4" required placeholder="请详细描述处理措施"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>预防措施 *</label>
+            <textarea name="prevention_measures" rows="4" required placeholder="请描述预防此类故障的措施"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-success" onclick="return confirm('确认标记此故障为已解决？')">确认解决</button>
+            <a href="{% url 'production:fault_record_detail' fault.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

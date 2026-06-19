@@ -1,0 +1,144 @@
+{% extends 'production/base.html' %}
+
+{% block title %}故障上报 - {{ equipment.equipment_name }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 故障上报 - {{ equipment.equipment_name }}</h2>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>故障编号</label>
+                <input type="text" name="fault_code" value="{{ default_code }}" placeholder="系统自动生成">
+            </div>
+            <div class="form-group">
+                <label>故障等级 *</label>
+                <select name="fault_level" required>
+                    {% for value, label in FAULT_LEVEL_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>故障状态 *</label>
+                <select name="fault_status" required>
+                    {% for value, label in FAULT_STATUS_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>所属工序</label>
+                <select name="stage_type">
+                    <option value="">请选择工序</option>
+                    {% for value, label in STAGE_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>发生时间 *</label>
+                <input type="datetime-local" name="occur_time" required>
+            </div>
+            <div class="form-group">
+                <label>发现人</label>
+                <input type="text" name="discovery_person" placeholder="请输入发现人姓名">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>故障现象 *</label>
+            <textarea name="fault_phenomenon" rows="3" required placeholder="请详细描述故障现象"></textarea>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>故障位置</label>
+                <input type="text" name="fault_location" placeholder="请输入故障位置">
+            </div>
+            <div class="form-group">
+                <label>故障原因</label>
+                <input type="text" name="fault_cause" placeholder="请输入故障原因（已诊断）">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>影响描述</label>
+            <textarea name="impact_description" rows="3" placeholder="请描述故障对生产的影响"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="is_production_impacted">
+                <span>是否影响生产</span>
+            </label>
+        </div>
+        
+        <div class="form-group">
+            <label>影响生产批次</label>
+            <select name="affected_batches" multiple size="5">
+                {% for batch in batches %}
+                <option value="{{ batch.pk }}">{{ batch.batch_no }} - {{ batch.material_source }}</option>
+                {% endfor %}
+            </select>
+            <small style="color: #999;">按住Ctrl可多选</small>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>停机时长(小时)</label>
+                <input type="number" step="0.1" name="downtime_hours" value="0">
+            </div>
+            <div class="form-group">
+                <label>维修费用(元)</label>
+                <input type="number" step="0.01" name="repair_cost" value="0">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>生产损失(元)</label>
+            <input type="number" step="0.01" name="production_loss" value="0">
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>解决时间</label>
+                <input type="datetime-local" name="resolve_time">
+            </div>
+            <div class="form-group">
+                <label>解决人</label>
+                <input type="text" name="resolver" placeholder="请输入解决人姓名">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>处理措施</label>
+            <textarea name="handling_measures" rows="3" placeholder="请描述已采取的处理措施"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>预防措施</label>
+            <textarea name="prevention_measures" rows="3" placeholder="请描述预防此类故障的措施"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">提交故障记录</button>
+            <a href="{% url 'production:equipment_detail' equipment.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

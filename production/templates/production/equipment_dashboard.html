@@ -1,0 +1,308 @@
+{% extends 'production/base.html' %}
+
+{% block title %}设备总览 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🏭 设备维护与运行管理总览</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value">{{ total_equipment }}</div>
+        <div class="stat-label">设备总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ running_equipment }}</div>
+        <div class="stat-label">运行中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ fault_equipment }}</div>
+        <div class="stat-label">故障停机</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ maintenance_equipment }}</div>
+        <div class="stat-label">维护保养中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ recent_faults }}</div>
+        <div class="stat-label">近30天故障数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ total_downtime }}h</div>
+        <div class="stat-label">近30天停机时长</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e67e22;">¥{{ total_repair_cost }}</div>
+        <div class="stat-label">近30天维修成本</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #667eea;">{{ pending_maintenance }}</div>
+        <div class="stat-label">待保养计划</div>
+    </div>
+</div>
+
+{% if overdue_maintenance > 0 or pending_repairs > 0 or low_stock_parts > 0 %}
+<div class="card" style="background: linear-gradient(135deg, #fff5f5 0%, #fff0f0 100%); border-left: 4px solid #e74c3c;">
+    <h3 class="card-title" style="color: #e74c3c;">⚠️ 待处理事项提醒</h3>
+    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+        {% if overdue_maintenance > 0 %}
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">⏰</span>
+            <div>
+                <div style="font-weight: bold; color: #e74c3c;">{{ overdue_maintenance }} 个保养计划逾期</div>
+                <a href="{% url 'production:maintenance_plan_list' %}" style="font-size: 13px; color: #667eea;">立即处理 →</a>
+            </div>
+        </div>
+        {% endif %}
+        {% if pending_repairs > 0 %}
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">🔧</span>
+            <div>
+                <div style="font-weight: bold; color: #f39c12;">{{ pending_repairs }} 个维修待处理</div>
+                <a href="{% url 'production:repair_record_list' %}" style="font-size: 13px; color: #667eea;">立即处理 →</a>
+            </div>
+        </div>
+        {% endif %}
+        {% if low_stock_parts > 0 %}
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">📦</span>
+            <div>
+                <div style="font-weight: bold; color: #8e44ad;">{{ low_stock_parts }} 个备件库存不足</div>
+                <a href="{% url 'production:spare_part_list' %}?stock=low" style="font-size: 13px; color: #667eea;">立即查看 →</a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">📊 按工序设备分布</h3>
+        <div class="chart-container">
+            <canvas id="stageChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">📊 设备状态分布</h3>
+        <div class="chart-container">
+            <canvas id="statusChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">🚨 最近故障记录</h3>
+        {% if recent_fault_list %}
+        <table>
+            <thead>
+                <tr>
+                    <th>故障编号</th>
+                    <th>设备</th>
+                    <th>等级</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fault in recent_fault_list %}
+                <tr>
+                    <td>{{ fault.fault_code }}</td>
+                    <td>{{ fault.equipment.equipment_name }}</td>
+                    <td>
+                        {% if fault.fault_level == 'critical' %}
+                        <span class="badge badge-danger">严重</span>
+                        {% elif fault.fault_level == 'major' %}
+                        <span class="badge badge-warning">重大</span>
+                        {% elif fault.fault_level == 'general' %}
+                        <span class="badge badge-info">一般</span>
+                        {% else %}
+                        <span class="badge badge-success">轻微</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if fault.fault_status == 'reported' %}
+                        <span class="badge badge-danger">已上报</span>
+                        {% elif fault.fault_status == 'diagnosing' %}
+                        <span class="badge badge-warning">诊断中</span>
+                        {% elif fault.fault_status == 'repairing' %}
+                        <span class="badge badge-info">维修中</span>
+                        {% elif fault.fault_status == 'resolved' %}
+                        <span class="badge badge-success">已解决</span>
+                        {% else %}
+                        <span class="badge badge-secondary">已关闭</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'production:fault_record_detail' fault.pk %}" class="btn btn-sm btn-primary">查看</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999;">暂无故障记录</p>
+        {% endif %}
+        <div style="margin-top: 15px;">
+            <a href="{% url 'production:fault_record_list' %}" class="btn btn-primary">查看全部故障</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">🔧 最近保养记录</h3>
+        {% if recent_maintenance %}
+        <table>
+            <thead>
+                <tr>
+                    <th>记录编号</th>
+                    <th>设备</th>
+                    <th>类型</th>
+                    <th>日期</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in recent_maintenance %}
+                <tr>
+                    <td>{{ record.record_code }}</td>
+                    <td>{{ record.equipment.equipment_name }}</td>
+                    <td>{{ record.get_maintenance_type_display }}</td>
+                    <td>{{ record.start_time|date:"Y-m-d" }}</td>
+                    <td>¥{{ record.total_cost }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999;">暂无保养记录</p>
+        {% endif %}
+        <div style="margin-top: 15px;">
+            <a href="{% url 'production:maintenance_record_list' %}" class="btn btn-primary">查看全部保养</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">📅 待执行保养计划</h3>
+        {% if pending_plan_list %}
+        <table>
+            <thead>
+                <tr>
+                    <th>计划编号</th>
+                    <th>设备</th>
+                    <th>计划日期</th>
+                    <th>负责人</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for plan in pending_plan_list %}
+                <tr>
+                    <td>{{ plan.plan_code }}</td>
+                    <td>{{ plan.equipment.equipment_name }}</td>
+                    <td>
+                        {% if plan.is_overdue %}
+                        <span style="color: #e74c3c;">{{ plan.plan_date }}</span>
+                        {% else %}
+                        {{ plan.plan_date }}
+                        {% endif %}
+                    </td>
+                    <td>{{ plan.responsible_person|default:"-" }}</td>
+                    <td>
+                        <a href="{% url 'production:maintenance_plan_complete' plan.pk %}" class="btn btn-sm btn-success">完成</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999;">暂无待执行计划</p>
+        {% endif %}
+        <div style="margin-top: 15px;">
+            <a href="{% url 'production:maintenance_plan_list' %}" class="btn btn-primary">查看全部计划</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔗 快捷功能入口</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px;">
+        <a href="{% url 'production:equipment_list' %}" class="btn btn-primary" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🏭</div>
+            <div>设备档案</div>
+        </a>
+        <a href="{% url 'production:equipment_status_monitor' %}" class="btn btn-success" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📡</div>
+            <div>运行监测</div>
+        </a>
+        <a href="{% url 'production:equipment_inspection_list' %}" class="btn btn-warning" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🔍</div>
+            <div>点检记录</div>
+        </a>
+        <a href="{% url 'production:repair_record_list' %}" class="btn btn-danger" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🔧</div>
+            <div>维修登记</div>
+        </a>
+        <a href="{% url 'production:spare_part_list' %}" class="btn btn-info" style="text-align: center; padding: 20px; background: #17a2b8; border-color: #17a2b8;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📦</div>
+            <div>备件管理</div>
+        </a>
+        <a href="{% url 'production:equipment_statistics' %}" class="btn btn-primary" style="text-align: center; padding: 20px; background: #9b59b6; border-color: #9b59b6;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📊</div>
+            <div>统计分析</div>
+        </a>
+        <a href="{% url 'production:equipment_production_impact' %}" class="btn btn-success" style="text-align: center; padding: 20px; background: #1abc9c; border-color: #1abc9c;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🔬</div>
+            <div>批次影响分析</div>
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const stageColors = ['#667eea', '#27ae60', '#f39c12', '#e74c3c', '#e67e22', '#3498db'];
+
+new Chart(document.getElementById('stageChart').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+        labels: {{ stage_labels|safe }},
+        datasets: [{
+            data: {{ stage_counts|safe }},
+            backgroundColor: stageColors.slice(0, {{ stage_labels|length }}),
+            borderWidth: 2,
+            borderColor: '#fff',
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'right' },
+            title: { display: true, text: '各工序设备数量' }
+        }
+    }
+});
+
+new Chart(document.getElementById('statusChart').getContext('2d'), {
+    type: 'pie',
+    data: {
+        labels: {{ status_labels|safe }},
+        datasets: [{
+            data: {{ status_counts|safe }},
+            backgroundColor: ['#27ae60', '#e74c3c', '#f39c12', '#95a5a6'],
+            borderWidth: 2,
+            borderColor: '#fff',
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'right' },
+            title: { display: true, text: '设备状态分布' }
+        }
+    }
+});
+</script>
+{% endblock %}

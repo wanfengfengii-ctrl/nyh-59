@@ -1,0 +1,130 @@
+{% extends 'production/base.html' %}
+
+{% block title %}维修登记 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔨 设备维修登记</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ pending_count }}</div>
+        <div class="stat-label">待处理维修</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ repairs|length }}</div>
+        <div class="stat-label">维修记录总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e67e22;">¥{{ total_cost }}</div>
+        <div class="stat-label">维修总费用</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:repair_record_list' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>设备</label>
+            <select name="equipment">
+                <option value="">全部设备</option>
+                {% for eq in equipments %}
+                <option value="{{ eq.pk }}" {% if equipment_filter == eq.pk|stringformat:"s" %}selected{% endif %}>{{ eq.equipment_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>维修类型</label>
+            <select name="type">
+                <option value="">全部类型</option>
+                {% for value, label in REPAIR_TYPE_CHOICES %}
+                <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>状态</label>
+            <select name="status">
+                <option value="">全部状态</option>
+                {% for value, label in REPAIR_STATUS_CHOICES %}
+                <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:repair_record_list' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="actions-bar">
+    <a href="{% url 'production:equipment_list' %}" class="btn btn-success">➕ 选择设备登记维修</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>维修单号</th>
+                <th>设备</th>
+                <th>类型</th>
+                <th>申请日期</th>
+                <th>维修人</th>
+                <th>工时</th>
+                <th>总费用</th>
+                <th>验收</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for repair in repairs %}
+            <tr>
+                <td><strong>{{ repair.repair_code }}</strong></td>
+                <td>{{ repair.equipment.equipment_name }}</td>
+                <td>{{ repair.get_repair_type_display }}</td>
+                <td>{{ repair.apply_date }}</td>
+                <td>{{ repair.repair_person|default:"-" }}</td>
+                <td>{{ repair.work_hours }}h</td>
+                <td>¥{{ repair.total_cost }}</td>
+                <td>
+                    {% if repair.quality_check %}
+                    <span class="badge badge-success">已验收</span>
+                    {% else %}
+                    <span class="badge badge-secondary">未验收</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if repair.status == 'pending' %}
+                    <span class="badge badge-warning">待处理</span>
+                    {% elif repair.status == 'processing' %}
+                    <span class="badge badge-info">维修中</span>
+                    {% elif repair.status == 'completed' %}
+                    <span class="badge badge-success">已完成</span>
+                    {% else %}
+                    <span class="badge badge-secondary">已取消</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if repair.status == 'pending' or repair.status == 'processing' %}
+                    <a href="{% url 'production:repair_record_complete' repair.pk %}" class="btn btn-sm btn-success">完成</a>
+                    {% endif %}
+                    <a href="{% url 'production:equipment_detail' repair.equipment.pk %}" class="btn btn-sm btn-primary">设备</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无维修记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

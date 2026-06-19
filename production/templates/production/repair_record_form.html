@@ -1,0 +1,158 @@
+{% extends 'production/base.html' %}
+
+{% block title %}维修登记 - {{ equipment.equipment_name }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔨 维修登记 - {{ equipment.equipment_name }}</h2>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>维修单号</label>
+                <input type="text" name="repair_code" value="{{ default_code }}" placeholder="系统自动生成">
+            </div>
+            <div class="form-group">
+                <label>关联故障</label>
+                <select name="fault">
+                    <option value="">无</option>
+                    {% for f in faults %}
+                    <option value="{{ f.pk }}">{{ f.fault_code }} - {{ f.fault_phenomenon|truncatechars:30 }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>维修类型 *</label>
+                <select name="repair_type" required>
+                    {% for value, label in REPAIR_TYPE_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>状态 *</label>
+                <select name="status" required>
+                    {% for value, label in REPAIR_STATUS_CHOICES %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>申请人</label>
+                <input type="text" name="applicant" placeholder="请输入申请人姓名">
+            </div>
+            <div class="form-group">
+                <label>申请日期 *</label>
+                <input type="date" name="apply_date" value="{% now 'Y-m-d' %}" required>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>开始时间</label>
+                <input type="datetime-local" name="start_time">
+            </div>
+            <div class="form-group">
+                <label>结束时间</label>
+                <input type="datetime-local" name="end_time">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>维修人</label>
+                <input type="text" name="repair_person" placeholder="请输入维修人姓名">
+            </div>
+            <div class="form-group">
+                <label>工时(小时)</label>
+                <input type="number" step="0.5" name="work_hours" value="0">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>维修内容 *</label>
+            <textarea name="repair_content" rows="3" required placeholder="请描述维修内容"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>维修方法</label>
+            <textarea name="repair_method" rows="3" placeholder="请描述维修方法"></textarea>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>人工费用(元)</label>
+                <input type="number" step="0.01" name="labor_cost" value="0">
+            </div>
+            <div class="form-group">
+                <label>备件费用(元)</label>
+                <input type="number" step="0.01" name="parts_cost" value="0">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>材料费用(元)</label>
+                <input type="number" step="0.01" name="material_cost" value="0">
+            </div>
+            <div class="form-group">
+                <label>其他费用(元)</label>
+                <input type="number" step="0.01" name="other_cost" value="0">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="has_replacement">
+                <span>是否更换备件</span>
+            </label>
+        </div>
+        
+        <div class="form-group">
+            <label>更换备件明细</label>
+            <textarea name="replacement_details" rows="3" placeholder="请列出更换的备件明细"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" name="quality_check">
+                <span>是否通过质量验收</span>
+            </label>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>验收人</label>
+                <input type="text" name="inspector" placeholder="请输入验收人姓名">
+            </div>
+            <div class="form-group">
+                <label>验收日期</label>
+                <input type="date" name="inspection_date">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>验收意见</label>
+            <textarea name="inspection_opinion" rows="3" placeholder="请输入验收意见"></textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">提交维修登记</button>
+            <a href="{% url 'production:equipment_detail' equipment.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

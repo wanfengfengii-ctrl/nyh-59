@@ -1,0 +1,123 @@
+{% extends 'production/base.html' %}
+
+{% block title %}备件档案 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📦 备件档案管理</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-value">{{ parts|length }}</div>
+        <div class="stat-label">备件种类</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">¥{{ total_value }}</div>
+        <div class="stat-label">库存总值</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e67e22;">{{ low_stock_count }}</div>
+        <div class="stat-label">库存不足</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ out_of_stock_count }}</div>
+        <div class="stat-label">已缺货</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:spare_part_list' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>关键字</label>
+            <input type="text" name="keyword" placeholder="编号/名称/规格" value="{{ keyword }}">
+        </div>
+        <div class="form-group">
+            <label>备件类型</label>
+            <select name="type">
+                <option value="">全部类型</option>
+                {% for value, label in SPARE_PART_TYPE_CHOICES %}
+                <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>库存状态</label>
+            <select name="stock">
+                <option value="">全部</option>
+                <option value="low" {% if stock_filter == 'low' %}selected{% endif %}>库存不足</option>
+                <option value="out" {% if stock_filter == 'out' %}selected{% endif %}>已缺货</option>
+                <option value="over" {% if stock_filter == 'over' %}selected{% endif %}>库存超量</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:spare_part_list' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="actions-bar">
+    <a href="{% url 'production:spare_part_create' %}" class="btn btn-success">➕ 新增备件</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>备件编号</th>
+                <th>备件名称</th>
+                <th>类型</th>
+                <th>规格</th>
+                <th>单位</th>
+                <th>单价</th>
+                <th>当前库存</th>
+                <th>安全库存</th>
+                <th>供应商</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for part in parts %}
+            <tr>
+                <td><strong>{{ part.part_code }}</strong></td>
+                <td>{{ part.part_name }}</td>
+                <td>{{ part.get_part_type_display }}</td>
+                <td>{{ part.specification|default:"-" }}</td>
+                <td>{{ part.unit }}</td>
+                <td>¥{{ part.unit_price }}</td>
+                <td>
+                    {% if part.current_stock <= 0 %}
+                    <span style="color: #e74c3c; font-weight: bold;">{{ part.current_stock }}</span>
+                    {% elif part.current_stock <= part.safety_stock %}
+                    <span style="color: #f39c12; font-weight: bold;">{{ part.current_stock }}</span>
+                    {% else %}
+                    {{ part.current_stock }}
+                    {% endif %}
+                </td>
+                <td>{{ part.safety_stock|default:0 }}</td>
+                <td>{{ part.supplier|default:"-" }}</td>
+                <td>
+                    {% if part.current_stock <= 0 %}
+                    <span class="badge badge-danger">缺货</span>
+                    {% elif part.current_stock <= part.safety_stock %}
+                    <span class="badge badge-warning">不足</span>
+                    {% elif part.max_stock and part.current_stock >= part.max_stock %}
+                    <span class="badge badge-info">超量</span>
+                    {% else %}
+                    <span class="badge badge-success">正常</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'production:spare_part_detail' part.pk %}" class="btn btn-sm btn-primary">详情</a>
+                    <a href="{% url 'production:spare_part_edit' part.pk %}" class="btn btn-sm btn-warning">编辑</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="11" style="text-align: center; color: #999; padding: 30px;">
+                    暂无备件数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

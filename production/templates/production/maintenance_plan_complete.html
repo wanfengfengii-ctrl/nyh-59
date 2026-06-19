@@ -1,0 +1,61 @@
+{% extends 'production/base.html' %}
+
+{% block title %}完成保养计划 - {{ plan.plan_name }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">✅ 完成保养计划 - {{ plan.plan_name }}</h2>
+
+<div class="card">
+    <h3 class="card-title">计划信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">计划编号</div>
+            <div class="value">{{ plan.plan_code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">设备</div>
+            <div class="value">{{ plan.equipment.equipment_name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">保养类型</div>
+            <div class="value">{{ plan.get_maintenance_type_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">计划日期</div>
+            <div class="value">{{ plan.plan_date }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>实际完成日期 *</label>
+                <input type="date" name="actual_date" value="{% now 'Y-m-d' %}" required>
+            </div>
+            <div class="form-group">
+                <label>实际工时(小时)</label>
+                <input type="number" step="0.5" name="actual_hours" value="0">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>实际费用(元)</label>
+            <input type="number" step="0.01" name="actual_cost" value="0">
+        </div>
+        
+        <div class="form-group">
+            <label>完成情况说明</label>
+            <textarea name="completion_description" rows="4" placeholder="请描述保养完成情况、发现的问题等"></textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-success" onclick="return confirm('确认完成此保养计划？')">确认完成</button>
+            <a href="{% url 'production:maintenance_plan_list' %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

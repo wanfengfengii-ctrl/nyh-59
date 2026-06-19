@@ -1,0 +1,226 @@
+{% extends 'production/base.html' %}
+
+{% block title %}设备-生产影响分析 - 设备维护与运行管理{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔗 设备异常对生产质量影响分析</h2>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:equipment_production_impact' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>工序</label>
+            <select name="process">
+                <option value="">全部工序</option>
+                {% for value, label in PROCESS_CHOICES %}
+                <option value="{{ value }}" {% if process_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>设备</label>
+            <select name="equipment">
+                <option value="">全部设备</option>
+                {% for eq in equipments %}
+                <option value="{{ eq.pk }}" {% if equipment_filter == eq.pk|stringformat:"s" %}selected{% endif %}>{{ eq.equipment_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </div>
+        <button type="submit" class="btn btn-primary">分析</button>
+        <a href="{% url 'production:equipment_production_impact' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="stat-value">{{ affected_batches.count }}</div>
+        <div class="stat-label">受影响批次</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ normal_batches.count }}</div>
+        <div class="stat-label">正常批次</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">生产质量对比分析</h3>
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;">
+        <div style="text-align: center; padding: 20px; background: #fff5f5; border-radius: 8px;">
+            <h4 style="margin: 0 0 15px 0; color: #2c3e50;">结晶率 (%)</h4>
+            <div style="display: flex; justify-content: space-around; align-items: flex-end; gap: 20px;">
+                <div>
+                    <div style="font-size: 36px; font-weight: bold; color: #e74c3c;">{{ comparison.crystallization_affected }}%</div>
+                    <div style="color: #666; margin-top: 5px;">受影响批次</div>
+                </div>
+                <div style="font-size: 24px; color: #999;">VS</div>
+                <div>
+                    <div style="font-size: 36px; font-weight: bold; color: #27ae60;">{{ comparison.crystallization_normal }}%</div>
+                    <div style="color: #666; margin-top: 5px;">正常批次</div>
+                </div>
+            </div>
+            <div style="margin-top: 15px;">
+                <span class="badge {% if comparison.crystallization_diff < 0 %}badge-danger{% else %}badge-success{% endif %}" style="font-size: 14px;">
+                    差异: {% if comparison.crystallization_diff >= 0 %}+{% endif %}{{ comparison.crystallization_diff }}%
+                </span>
+            </div>
+        </div>
+        <div style="text-align: center; padding: 20px; background: #f0f9ff; border-radius: 8px;">
+            <h4 style="margin: 0 0 15px 0; color: #2c3e50;">纯度 (%)</h4>
+            <div style="display: flex; justify-content: space-around; align-items: flex-end; gap: 20px;">
+                <div>
+                    <div style="font-size: 36px; font-weight: bold; color: #e74c3c;">{{ comparison.purity_affected }}%</div>
+                    <div style="color: #666; margin-top: 5px;">受影响批次</div>
+                </div>
+                <div style="font-size: 24px; color: #999;">VS</div>
+                <div>
+                    <div style="font-size: 36px; font-weight: bold; color: #27ae60;">{{ comparison.purity_normal }}%</div>
+                    <div style="color: #666; margin-top: 5px;">正常批次</div>
+                </div>
+            </div>
+            <div style="margin-top: 15px;">
+                <span class="badge {% if comparison.purity_diff < 0 %}badge-danger{% else %}badge-success{% endif %}" style="font-size: 14px;">
+                    差异: {% if comparison.purity_diff >= 0 %}+{% endif %}{{ comparison.purity_diff }}%
+                </span>
+            </div>
+        </div>
+        <div style="text-align: center; padding: 20px; background: #f0fff4; border-radius: 8px;">
+            <h4 style="margin: 0 0 15px 0; color: #2c3e50;">平均产量 (kg)</h4>
+            <div style="display: flex; justify-content: space-around; align-items: flex-end; gap: 20px;">
+                <div>
+                    <div style="font-size: 36px; font-weight: bold; color: #e74c3c;">{{ comparison.output_affected }}</div>
+                    <div style="color: #666; margin-top: 5px;">受影响批次</div>
+                </div>
+                <div style="font-size: 24px; color: #999;">VS</div>
+                <div>
+                    <div style="font-size: 36px; font-weight: bold; color: #27ae60;">{{ comparison.output_normal }}</div>
+                    <div style="color: #666; margin-top: 5px;">正常批次</div>
+                </div>
+            </div>
+            <div style="margin-top: 15px;">
+                <span class="badge {% if comparison.output_diff < 0 %}badge-danger{% else %}badge-success{% endif %}" style="font-size: 14px;">
+                    差异: {% if comparison.output_diff >= 0 %}+{% endif %}{{ comparison.output_diff }} kg
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div>
+        <h3 class="card-title">结晶率对比</h3>
+        <canvas id="crystallizationChart" style="max-height: 280px;"></canvas>
+    </div>
+    <div>
+        <h3 class="card-title">纯度对比</h3>
+        <canvas id="purityChart" style="max-height: 280px;"></canvas>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">受影响批次详情</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>产品</th>
+                <th>关联设备</th>
+                <th>关联故障</th>
+                <th>结晶率(%)</th>
+                <th>纯度(%)</th>
+                <th>产量(kg)</th>
+                <th>生产开始</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for batch in affected_batches %}
+            <tr>
+                <td><strong>{{ batch.batch_no }}</strong></td>
+                <td>{{ batch.product_name|default:"-" }}</td>
+                <td>
+                    {% for fault in batch.related_faults.all %}
+                    <span class="badge badge-danger" style="margin: 2px;">{{ fault.equipment.equipment_name }}</span>
+                    {% endfor %}
+                </td>
+                <td>
+                    {% for fault in batch.related_faults.all %}
+                    <a href="{% url 'production:fault_record_detail' fault.pk %}" style="color: #e74c3c; font-size: 12px;">
+                        {{ fault.fault_code }}
+                    </a>
+                    {% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
+                <td style="color: {% if batch.crystallization_rate and batch.crystallization_rate < 85 %}#e74c3c{% else %}#27ae60{% endif %};">
+                    {{ batch.crystallization_rate|default:"-" }}
+                </td>
+                <td style="color: {% if batch.purity and batch.purity < 95 %}#e74c3c{% else %}#27ae60{% endif %};">
+                    {{ batch.purity|default:"-" }}
+                </td>
+                <td>{{ batch.actual_output|default:"-" }}</td>
+                <td>{{ batch.start_time|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-sm btn-primary">详情</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: #999; padding: 30px;">
+                    暂无受影响批次数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+new Chart(document.getElementById('crystallizationChart'), {
+    type: 'bar',
+    data: {
+        labels: ['受影响批次', '正常批次'],
+        datasets: [{
+            label: '平均结晶率 (%)',
+            data: [{{ comparison.crystallization_affected }}, {{ comparison.crystallization_normal }}],
+            backgroundColor: ['rgba(231,76,60,0.7)', 'rgba(39,174,96,0.7)'],
+            borderColor: ['#e74c3c', '#27ae60'],
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { beginAtZero: false, min: 50, max: 100, title: { display: true, text: '结晶率 (%)' } }
+        }
+    }
+});
+
+new Chart(document.getElementById('purityChart'), {
+    type: 'bar',
+    data: {
+        labels: ['受影响批次', '正常批次'],
+        datasets: [{
+            label: '平均纯度 (%)',
+            data: [{{ comparison.purity_affected }}, {{ comparison.purity_normal }}],
+            backgroundColor: ['rgba(231,76,60,0.7)', 'rgba(39,174,96,0.7)'],
+            borderColor: ['#e74c3c', '#27ae60'],
+            borderWidth: 2
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            y: { beginAtZero: false, min: 80, max: 100, title: { display: true, text: '纯度 (%)' } }
+        }
+    }
+});
+</script>
+{% endblock %}

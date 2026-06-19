@@ -84,4 +84,44 @@ urlpatterns = [
     path('cost/warnings/', views.loss_warning_list, name='loss_warning_list'),
     path('cost/warnings/<int:pk>/', views.loss_warning_detail, name='loss_warning_detail'),
     path('cost/source-stats/', views.source_cost_stats, name='source_cost_stats'),
+
+    path('equipment/', views.equipment_dashboard, name='equipment_dashboard'),
+    path('equipment/list/', views.equipment_list, name='equipment_list'),
+    path('equipment/<int:pk>/', views.equipment_detail, name='equipment_detail'),
+    path('equipment/create/', views.equipment_create, name='equipment_create'),
+    path('equipment/<int:pk>/edit/', views.equipment_edit, name='equipment_edit'),
+
+    path('equipment/inspections/', views.equipment_inspection_list, name='equipment_inspection_list'),
+    path('equipment/inspections/create/<int:equipment_id>/', views.equipment_inspection_create, name='equipment_inspection_create'),
+
+    path('equipment/maintenance-plans/', views.maintenance_plan_list, name='maintenance_plan_list'),
+    path('equipment/maintenance-plans/create/<int:equipment_id>/', views.maintenance_plan_create, name='maintenance_plan_create'),
+    path('equipment/maintenance-plans/<int:pk>/complete/', views.maintenance_plan_complete, name='maintenance_plan_complete'),
+
+    path('equipment/maintenance-records/', views.maintenance_record_list, name='maintenance_record_list'),
+    path('equipment/maintenance-records/create/<int:equipment_id>/', views.maintenance_record_create, name='maintenance_record_create'),
+
+    path('equipment/repairs/', views.repair_record_list, name='repair_record_list'),
+    path('equipment/repairs/create/<int:equipment_id>/', views.repair_record_create, name='repair_record_create'),
+    path('equipment/repairs/<int:pk>/complete/', views.repair_record_complete, name='repair_record_complete'),
+
+    path('equipment/faults/', views.fault_record_list, name='fault_record_list'),
+    path('equipment/faults/create/<int:equipment_id>/', views.fault_record_create, name='fault_record_create'),
+    path('equipment/faults/<int:pk>/', views.fault_record_detail, name='fault_record_detail'),
+    path('equipment/faults/<int:pk>/resolve/', views.fault_record_resolve, name='fault_record_resolve'),
+
+    path('equipment/spare-parts/', views.spare_part_list, name='spare_part_list'),
+    path('equipment/spare-parts/<int:pk>/', views.spare_part_detail, name='spare_part_detail'),
+    path('equipment/spare-parts/create/', views.spare_part_create, name='spare_part_create'),
+    path('equipment/spare-parts/<int:pk>/edit/', views.spare_part_edit, name='spare_part_edit'),
+
+    path('equipment/spare-parts/replacements/', views.spare_part_replacement_list, name='spare_part_replacement_list'),
+    path('equipment/spare-parts/replacements/create/<int:equipment_id>/', views.spare_part_replacement_create, name='spare_part_replacement_create'),
+
+    path('equipment/status-monitor/', views.equipment_status_monitor, name='equipment_status_monitor'),
+    path('equipment/status-records/create/<int:equipment_id>/', views.equipment_status_record_create, name='equipment_status_record_create'),
+
+    path('equipment/statistics/', views.equipment_statistics, name='equipment_statistics'),
+    path('equipment/statistics/calculate/', views.equipment_stats_calculate, name='equipment_stats_calculate'),
+    path('equipment/production-impact/', views.equipment_production_impact, name='equipment_production_impact'),
 ]
