@@ -1,0 +1,299 @@
+{% extends 'production/base.html' %}
+
+{% block title %}效益排行 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🏆 效益排行</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料来源</label>
+        <select id="sourceFilter">
+            <option value="">全部来源</option>
+            {% for source in sources %}
+            <option value="{{ source }}" {% if source_filter == source %}selected{% endif %}>{{ source }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>开始日期</label>
+        <input type="date" id="startDate" value="{{ start_date|default:'' }}">
+    </div>
+    <div class="form-group">
+        <label>结束日期</label>
+        <input type="date" id="endDate" value="{{ end_date|default:'' }}">
+    </div>
+    <div class="form-group">
+        <label>排序方式</label>
+        <select id="sortBy">
+            <option value="profit_margin" {% if sort_by == 'profit_margin' %}selected{% endif %}>利润率</option>
+            <option value="profit" {% if sort_by == 'profit' %}selected{% endif %}>利润</option>
+            <option value="total_cost" {% if sort_by == 'total_cost' %}selected{% endif %}>总成本</option>
+            <option value="unit_cost" {% if sort_by == 'unit_cost' %}selected{% endif %}>单位成本</option>
+        </select>
+    </div>
+    <button class="btn btn-primary" onclick="filterRanking()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="card">
+    <h3 class="card-title">批次效益排行</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>排名</th>
+                <th>批次编号</th>
+                <th>原料来源</th>
+                <th>总成本(元)</th>
+                <th>单位成本(元/kg)</th>
+                <th>收入(元)</th>
+                <th>利润(元)</th>
+                <th>利润率</th>
+                <th>结晶率</th>
+                <th>纯度</th>
+                <th>异常次数</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in batch_ranking %}
+            <tr>
+                <td>
+                    {% if item.rank <= 3 %}
+                    <span class="badge badge-success">{{ item.rank }}</span>
+                    {% elif item.rank <= 6 %}
+                    <span class="badge badge-warning">{{ item.rank }}</span>
+                    {% else %}
+                    <span class="badge badge-danger">{{ item.rank }}</span>
+                    {% endif %}
+                </td>
+                <td><strong>{{ item.summary.batch.batch_no }}</strong></td>
+                <td>{{ item.summary.batch.material_source }}</td>
+                <td>{{ item.summary.total_cost|floatformat:2 }}</td>
+                <td>{{ item.summary.unit_cost|floatformat:2 }}</td>
+                <td>{{ item.summary.revenue|floatformat:2 }}</td>
+                <td style="font-weight: 600; {% if item.summary.profit < 0 %}color: #e74c3c;{% else %}color: #27ae60;{% endif %}">
+                    {{ item.summary.profit|floatformat:2 }}
+                </td>
+                <td>
+                    {% if item.summary.profit_margin < 0 %}
+                    <span class="badge badge-danger">{{ item.summary.profit_margin|floatformat:1 }}%</span>
+                    {% elif item.summary.profit_margin < 10 %}
+                    <span class="badge badge-warning">{{ item.summary.profit_margin|floatformat:1 }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ item.summary.profit_margin|floatformat:1 }}%</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if item.rate %}
+                    {% if item.rate < 15 %}
+                    <span class="badge badge-danger">{{ item.rate|floatformat:1 }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ item.rate|floatformat:1 }}%</span>
+                    {% endif %}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{% if item.purity %}{{ item.purity|floatformat:1 }}%{% else %}-{% endif %}</td>
+                <td>
+                    {% if item.abnormal_count > 0 %}
+                    <span class="badge badge-danger">{{ item.abnormal_count }}</span>
+                    {% else %}
+                    <span class="badge badge-success">0</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'production:batch_cost_detail' item.summary.batch.pk %}" class="btn btn-sm btn-primary">明细</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="12" style="text-align: center; color: #999; padding: 30px;">
+                    暂无排行数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if source_stats %}
+<div class="card">
+    <h3 class="card-title">按原料来源效益统计</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>原料来源</th>
+                <th>批次数</th>
+                <th>已完成</th>
+                <th>平均总成本(元)</th>
+                <th>平均利润(元)</th>
+                <th>平均利润率</th>
+                <th>平均结晶率</th>
+                <th>平均纯度</th>
+                <th>异常次数</th>
+                <th>效益等级</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stat in source_stats %}
+            <tr>
+                <td><strong>{{ stat.material_source }}</strong></td>
+                <td>{{ stat.total_batches }}</td>
+                <td>{{ stat.completed_batches }}</td>
+                <td>{{ stat.avg_total_cost|floatformat:2 }}</td>
+                <td style="font-weight: 600; {% if stat.avg_profit < 0 %}color: #e74c3c;{% else %}color: #27ae60;{% endif %}">
+                    {{ stat.avg_profit|floatformat:2 }}
+                </td>
+                <td>
+                    {% if stat.avg_profit_margin < 0 %}
+                    <span class="badge badge-danger">{{ stat.avg_profit_margin|floatformat:1 }}%</span>
+                    {% elif stat.avg_profit_margin < 10 %}
+                    <span class="badge badge-warning">{{ stat.avg_profit_margin|floatformat:1 }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ stat.avg_profit_margin|floatformat:1 }}%</span>
+                    {% endif %}
+                </td>
+                <td>{{ stat.avg_crystallization_rate|floatformat:1|default:"-" }}%</td>
+                <td>{{ stat.avg_crystallization_purity|floatformat:1|default:"-" }}%</td>
+                <td>
+                    {% if stat.abnormal_count > 0 %}
+                    <span class="badge badge-danger">{{ stat.abnormal_count }}</span>
+                    {% else %}
+                    <span class="badge badge-success">0</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stat.benefit_level == '优秀' %}
+                    <span class="badge badge-success">{{ stat.benefit_level }}</span>
+                    {% elif stat.benefit_level == '良好' %}
+                    <span class="badge badge-info">{{ stat.benefit_level }}</span>
+                    {% elif stat.benefit_level == '一般' %}
+                    <span class="badge badge-warning">{{ stat.benefit_level }}</span>
+                    {% else %}
+                    <span class="badge badge-danger">{{ stat.benefit_level }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">来源平均利润率对比</h3>
+        <div class="chart-container">
+            <canvas id="sourceMarginChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">来源结晶率与纯度对比</h3>
+        <div class="chart-container">
+            <canvas id="sourceQualityChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterRanking() {
+    const source = document.getElementById('sourceFilter').value;
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+    const sortBy = document.getElementById('sortBy').value;
+
+    let url = '{% url "production:benefit_ranking" %}?';
+    if (source) url += 'source=' + encodeURIComponent(source) + '&';
+    if (start) url += 'start_date=' + encodeURIComponent(start) + '&';
+    if (end) url += 'end_date=' + encodeURIComponent(end) + '&';
+    if (sortBy) url += 'sort_by=' + encodeURIComponent(sortBy);
+
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:benefit_ranking" %}';
+}
+
+{% if source_stats %}
+const sourceLabels = [{% for stat in source_stats %}'{{ stat.material_source }}'{% if not forloop.last %},{% endif %}{% endfor %}];
+const sourceMargins = [{% for stat in source_stats %}{{ stat.avg_profit_margin|floatformat:2 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const sourceRates = [{% for stat in source_stats %}{{ stat.avg_crystallization_rate|floatformat:2|default:"0" }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const sourcePurities = [{% for stat in source_stats %}{{ stat.avg_crystallization_purity|floatformat:2|default:"0" }}{% if not forloop.last %},{% endif %}{% endfor %}];
+
+new Chart(document.getElementById('sourceMarginChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: sourceLabels,
+        datasets: [{
+            label: '平均利润率(%)',
+            data: sourceMargins,
+            backgroundColor: sourceMargins.map(v => v >= 10 ? 'rgba(39, 174, 96, 0.7)' : v >= 0 ? 'rgba(243, 156, 18, 0.7)' : 'rgba(231, 76, 60, 0.7)'),
+            borderColor: sourceMargins.map(v => v >= 10 ? '#27ae60' : v >= 0 ? '#f39c12' : '#e74c3c'),
+            borderWidth: 1,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '各来源平均利润率' },
+        },
+        scales: {
+            y: {
+                title: { display: true, text: '利润率(%)' },
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('sourceQualityChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: sourceLabels,
+        datasets: [
+            {
+                label: '平均结晶率(%)',
+                data: sourceRates,
+                backgroundColor: 'rgba(26, 188, 156, 0.7)',
+                borderColor: '#1abc9c',
+                borderWidth: 1,
+                yAxisID: 'y',
+            },
+            {
+                label: '平均纯度(%)',
+                data: sourcePurities,
+                type: 'line',
+                borderColor: '#9b59b6',
+                backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y',
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '来源结晶率与纯度' },
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: { display: true, text: '百分比(%)' },
+                max: 100,
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

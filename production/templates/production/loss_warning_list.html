@@ -1,0 +1,114 @@
+{% extends 'production/base.html' %}
+
+{% block title %}亏损预警记录{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 亏损预警记录</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.active }}</div>
+        <div class="stat-label">未处理</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ stats.severe }}</div>
+        <div class="stat-label">重度预警</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ stats.moderate }}</div>
+        <div class="stat-label">中度预警</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #667eea;">{{ stats.mild }}</div>
+        <div class="stat-label">轻度预警</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>预警级别</label>
+        <select name="level" onchange="filterList()">
+            <option value="">全部级别</option>
+            {% for val, label in warning_level_choices %}
+            <option value="{{ val }}" {% if level_filter == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>预警状态</label>
+        <select name="status" onchange="filterList()">
+            <option value="">全部状态</option>
+            {% for val, label in alert_status_choices %}
+            <option value="{{ val }}" {% if status_filter == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>批次编号</label>
+        <input type="text" name="batch" value="{{ batch_filter }}" placeholder="搜索批次编号" onchange="filterList()">
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">亏损预警列表</div>
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>预警标题</th>
+                <th>预警级别</th>
+                <th>亏损金额(元)</th>
+                <th>预警状态</th>
+                <th>触发时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for w in warnings %}
+            <tr>
+                <td><a href="{% url 'production:batch_detail' pk=w.batch.pk %}">{{ w.batch.batch_no }}</a></td>
+                <td>{{ w.warning_title }}</td>
+                <td>
+                    {% if w.warning_level == 'severe' %}
+                    <span class="badge badge-danger">{{ w.get_warning_level_display }}</span>
+                    {% elif w.warning_level == 'moderate' %}
+                    <span class="badge badge-warning">{{ w.get_warning_level_display }}</span>
+                    {% else %}
+                    <span class="badge badge-info">{{ w.get_warning_level_display }}</span>
+                    {% endif %}
+                </td>
+                <td style="color: #e74c3c; font-weight: 600;">{{ w.indicator_value|floatformat:2 }}</td>
+                <td>
+                    {% if w.warning_status == 'active' %}
+                    <span class="badge badge-danger">{{ w.get_warning_status_display }}</span>
+                    {% elif w.warning_status == 'acknowledged' %}
+                    <span class="badge badge-warning">{{ w.get_warning_status_display }}</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ w.get_warning_status_display }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ w.triggered_at|date:"Y-m-d H:i" }}</td>
+                <td><a href="{% url 'production:loss_warning_detail' pk=w.pk %}" class="btn btn-sm btn-primary">处理</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" style="text-align: center; color: #7f8c8d;">暂无亏损预警记录</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterList() {
+    var level = document.querySelector('select[name="level"]').value;
+    var status = document.querySelector('select[name="status"]').value;
+    var batch = document.querySelector('input[name="batch"]').value;
+    var params = new URLSearchParams();
+    if (level) params.set('level', level);
+    if (status) params.set('status', status);
+    if (batch) params.set('batch', batch);
+    window.location.search = params.toString();
+}
+</script>
+{% endblock %}

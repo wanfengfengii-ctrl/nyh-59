@@ -6,8 +6,12 @@ from .models import (
     MaterialQualityStats, AbnormalClosure,
     MaterialCategory, MaterialSupplier, Material, MaterialInbound, MaterialOutbound,
     MaterialLoss, BatchMaterialUsage, MaterialStockAlert, MaterialStockHistory,
+    ProcessEnergyCost, LaborCost, OtherCost, ProductSale,
+    BatchCostSummary, LossWarning, SourceCostStats,
     MATERIAL_UNIT_CHOICES, STOCK_ALERT_STATUS_CHOICES, INBOUND_TYPE_CHOICES,
-    OUTBOUND_TYPE_CHOICES, LOSS_REASON_CHOICES
+    OUTBOUND_TYPE_CHOICES, LOSS_REASON_CHOICES,
+    ENERGY_TYPE_CHOICES, OTHER_COST_CATEGORY_CHOICES,
+    LOSS_WARNING_LEVEL_CHOICES, SALE_STATUS_CHOICES,
 )
 
 
@@ -238,3 +242,77 @@ class MaterialStockHistoryAdmin(admin.ModelAdmin):
     date_hierarchy = 'record_date'
     readonly_fields = ('created_at', 'closing_stock')
     autocomplete_fields = ('material',)
+
+
+@admin.register(ProcessEnergyCost)
+class ProcessEnergyCostAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'stage_type', 'energy_type', 'consumption', 'unit',
+                    'unit_price', 'total_amount', 'record_date', 'operator')
+    search_fields = ('batch__batch_no', 'operator', 'meter_reading')
+    list_filter = ('stage_type', 'energy_type', 'record_date')
+    date_hierarchy = 'record_date'
+    readonly_fields = ('created_at', 'updated_at', 'total_amount')
+    autocomplete_fields = ('batch',)
+
+
+@admin.register(LaborCost)
+class LaborCostAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'stage_type', 'worker_name', 'work_type',
+                    'work_hours', 'hourly_rate', 'total_amount', 'work_date', 'operator')
+    search_fields = ('batch__batch_no', 'worker_name', 'work_type', 'operator')
+    list_filter = ('stage_type', 'work_date')
+    date_hierarchy = 'work_date'
+    readonly_fields = ('created_at', 'updated_at', 'total_amount')
+    autocomplete_fields = ('batch',)
+
+
+@admin.register(OtherCost)
+class OtherCostAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'cost_category', 'cost_name', 'amount',
+                    'cost_date', 'operator', 'invoice_no')
+    search_fields = ('batch__batch_no', 'cost_name', 'operator', 'invoice_no')
+    list_filter = ('cost_category', 'cost_date')
+    date_hierarchy = 'cost_date'
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('batch',)
+
+
+@admin.register(ProductSale)
+class ProductSaleAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'sale_quantity', 'unit_price', 'total_revenue',
+                    'actual_revenue', 'customer_name', 'sale_status', 'operator')
+    search_fields = ('batch__batch_no', 'customer_name', 'operator')
+    list_filter = ('sale_status', 'sale_date')
+    readonly_fields = ('created_at', 'updated_at', 'total_revenue', 'actual_revenue')
+    autocomplete_fields = ('batch',)
+
+
+@admin.register(BatchCostSummary)
+class BatchCostSummaryAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'material_cost', 'energy_cost', 'labor_cost',
+                    'other_cost', 'total_cost', 'unit_cost', 'revenue',
+                    'profit', 'profit_margin', 'is_loss')
+    search_fields = ('batch__batch_no',)
+    list_filter = ('is_loss', 'loss_warning_level', 'warning_triggered')
+    readonly_fields = ('created_at', 'updated_at', 'last_calculated')
+
+
+@admin.register(LossWarning)
+class LossWarningAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'warning_level', 'warning_type', 'warning_title',
+                    'indicator_value', 'warning_status', 'triggered_at')
+    search_fields = ('batch__batch_no', 'warning_title', 'warning_message')
+    list_filter = ('warning_level', 'warning_status', 'warning_type', 'triggered_at')
+    date_hierarchy = 'triggered_at'
+    readonly_fields = ('created_at', 'triggered_at')
+    autocomplete_fields = ('batch', 'cost_summary')
+
+
+@admin.register(SourceCostStats)
+class SourceCostStatsAdmin(admin.ModelAdmin):
+    list_display = ('material_source', 'total_batches', 'completed_batches',
+                    'avg_total_cost', 'avg_profit', 'avg_profit_margin',
+                    'total_profit', 'loss_rate', 'benefit_score', 'benefit_level')
+    search_fields = ('material_source',)
+    list_filter = ('benefit_level',)
+    readonly_fields = ('last_updated', 'created_at')

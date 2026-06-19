@@ -2,7 +2,7 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import date, datetime
-from django.db.models import Avg, Q
+from django.db.models import Avg, Q, Sum
 
 
 STAGE_CHOICES = [
@@ -670,6 +670,39 @@ LOSS_REASON_CHOICES = [
     ('other', '其他损耗'),
 ]
 
+ENERGY_TYPE_CHOICES = [
+    ('electricity', '电力'),
+    ('coal', '煤炭'),
+    ('water', '用水'),
+    ('gas', '天然气'),
+    ('steam', '蒸汽'),
+    ('other', '其他能源'),
+]
+
+OTHER_COST_CATEGORY_CHOICES = [
+    ('equipment', '设备折旧'),
+    ('maintenance', '设备维护'),
+    ('packaging', '包装材料'),
+    ('transport', '运输费用'),
+    ('management', '管理分摊'),
+    ('quality', '质量检测'),
+    ('waste', '废弃物处理'),
+    ('other', '其他费用'),
+]
+
+LOSS_WARNING_LEVEL_CHOICES = [
+    ('mild', '轻度预警'),
+    ('moderate', '中度预警'),
+    ('severe', '重度预警'),
+]
+
+SALE_STATUS_CHOICES = [
+    ('pending', '待确认'),
+    ('confirmed', '已确认'),
+    ('completed', '已完成'),
+    ('cancelled', '已取消'),
+]
+
 
 class MaterialCategory(models.Model):
     name = models.CharField('分类名称', max_length=50, unique=True)
@@ -1040,3 +1073,578 @@ class MaterialStockHistory(models.Model):
             self.opening_stock + self.inbound_quantity - self.outbound_quantity - self.loss_quantity, 2
         )
         super().save(*args, **kwargs)
+
+
+class ProcessEnergyCost(models.Model):
+    batch = models.ForeignKey(RawMaterialBatch, on_delete=models.CASCADE,
+                              verbose_name='生产批次', related_name='energy_costs')
+    stage_type = models.CharField('工序阶段', max_length=20, choices=STAGE_CHOICES)
+    energy_type = models.CharField('能源类型', max_length=20, choices=ENERGY_TYPE_CHOICES)
+    consumption = models.FloatField('消耗量')
+    unit = models.CharField('计量单位', max_length=20)
+    unit_price = models.FloatField('单价(元)', default=0)
+    total_amount = models.FloatField('总金额(元)', default=0)
+    record_date = models.DateField('记录日期', default=date.today)
+    operator = models.CharField('记录人员', max_length=50)
+    meter_reading = models.CharField('仪表读数', max_length=100, blank=True)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-record_date']
+        verbose_name = '工序能耗成本'
+        verbose_name_plural = '工序能耗成本'
+
+    def __str__(self):
+        return f'{self.batch.batch_no} - {self.get_stage_type_display()} - {self.get_energy_type_display()}'
+
+    def clean(self):
+        if self.consumption <= 0:
+            raise ValidationError('消耗量必须大于0')
+        if self.unit_price < 0:
+            raise ValidationError('单价不能为负数')
+        if self.record_date > date.today():
+            raise ValidationError('记录日期不能晚于当前日期')
+
+    def save(self, *args, **kwargs):
+        self.total_amount = round(self.consumption * self.unit_price, 2)
+        super().save(*args, **kwargs)
+
+
+class LaborCost(models.Model):
+    batch = models.ForeignKey(RawMaterialBatch, on_delete=models.CASCADE,
+                              verbose_name='生产批次', related_name='labor_costs')
+    stage_type = models.CharField('工序阶段', max_length=20, choices=STAGE_CHOICES,
+                                   blank=True, null=True)
+    worker_name = models.CharField('工人姓名', max_length=50)
+    work_type = models.CharField('工作类型', max_length=50)
+    work_hours = models.FloatField('工时(小时)')
+    hourly_rate = models.FloatField('工时单价(元)', default=0)
+    overtime_hours = models.FloatField('加班工时(小时)', default=0)
+    overtime_rate = models.FloatField('加班单价(元)', default=0)
+    subsidy = models.FloatField('补贴(元)', default=0)
+    deduction = models.FloatField('扣款(元)', default=0)
+    total_amount = models.FloatField('总金额(元)', default=0)
+    work_date = models.DateField('工作日期', default=date.today)
+    operator = models.CharField('记录人员', max_length=50)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-work_date']
+        verbose_name = '人工费用'
+        verbose_name_plural = '人工费用'
+
+    def __str__(self):
+        return f'{self.batch.batch_no} - {self.worker_name} - {self.work_type}'
+
+    def clean(self):
+        if self.work_hours <= 0:
+            raise ValidationError('工时必须大于0')
+        if self.hourly_rate < 0:
+            raise ValidationError('工时单价不能为负数')
+        if self.overtime_hours < 0:
+            raise ValidationError('加班工时不能为负数')
+        if self.overtime_rate < 0:
+            raise ValidationError('加班单价不能为负数')
+        if self.work_date > date.today():
+            raise ValidationError('工作日期不能晚于当前日期')
+
+    def save(self, *args, **kwargs):
+        base = self.work_hours * self.hourly_rate
+        ot = self.overtime_hours * self.overtime_rate
+        self.total_amount = round(base + ot + self.subsidy - self.deduction, 2)
+        super().save(*args, **kwargs)
+
+
+class OtherCost(models.Model):
+    batch = models.ForeignKey(RawMaterialBatch, on_delete=models.CASCADE,
+                              verbose_name='生产批次', related_name='other_costs')
+    cost_category = models.CharField('费用类别', max_length=30, choices=OTHER_COST_CATEGORY_CHOICES)
+    cost_name = models.CharField('费用名称', max_length=100)
+    amount = models.FloatField('金额(元)')
+    quantity = models.FloatField('数量', default=1)
+    unit_price = models.FloatField('单价(元)', default=0)
+    cost_date = models.DateField('费用日期', default=date.today)
+    operator = models.CharField('记录人员', max_length=50)
+    invoice_no = models.CharField('发票单号', max_length=50, blank=True)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-cost_date']
+        verbose_name = '其他费用'
+        verbose_name_plural = '其他费用'
+
+    def __str__(self):
+        return f'{self.batch.batch_no} - {self.cost_name}'
+
+    def clean(self):
+        if self.amount <= 0:
+            raise ValidationError('金额必须大于0')
+        if self.cost_date > date.today():
+            raise ValidationError('费用日期不能晚于当前日期')
+
+    def save(self, *args, **kwargs):
+        if self.unit_price > 0 and self.quantity > 0:
+            self.amount = round(self.unit_price * self.quantity, 2)
+        super().save(*args, **kwargs)
+
+
+class ProductSale(models.Model):
+    batch = models.OneToOneField(RawMaterialBatch, on_delete=models.CASCADE,
+                                  verbose_name='生产批次', related_name='product_sale')
+    sale_quantity = models.FloatField('销售数量(kg)', default=0)
+    unit_price = models.FloatField('销售单价(元/kg)', default=0)
+    total_revenue = models.FloatField('销售收入(元)', default=0)
+    customer_name = models.CharField('客户名称', max_length=100, blank=True)
+    sale_date = models.DateField('销售日期', null=True, blank=True)
+    discount = models.FloatField('折扣(元)', default=0)
+    shipping_fee = models.FloatField('运费(元)', default=0)
+    other_income = models.FloatField('其他收入(元)', default=0)
+    actual_revenue = models.FloatField('实际收入(元)', default=0)
+    sale_status = models.CharField('销售状态', max_length=20, choices=SALE_STATUS_CHOICES,
+                                    default='pending')
+    operator = models.CharField('录入人员', max_length=50)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '产品销售'
+        verbose_name_plural = '产品销售'
+
+    def __str__(self):
+        return f'{self.batch.batch_no} - 销售记录'
+
+    def clean(self):
+        if self.sale_quantity < 0:
+            raise ValidationError('销售数量不能为负数')
+        if self.unit_price < 0:
+            raise ValidationError('销售单价不能为负数')
+
+    def save(self, *args, **kwargs):
+        self.total_revenue = round(self.sale_quantity * self.unit_price, 2)
+        self.actual_revenue = round(self.total_revenue - self.discount + self.shipping_fee + self.other_income, 2)
+        super().save(*args, **kwargs)
+
+
+class BatchCostSummary(models.Model):
+    batch = models.OneToOneField(RawMaterialBatch, on_delete=models.CASCADE,
+                                  verbose_name='生产批次', related_name='cost_summary')
+    material_cost = models.FloatField('原料成本(元)', default=0)
+    energy_cost = models.FloatField('能耗成本(元)', default=0)
+    labor_cost = models.FloatField('人工成本(元)', default=0)
+    other_cost = models.FloatField('其他费用(元)', default=0)
+    loss_cost = models.FloatField('损耗费用(元)', default=0)
+    total_cost = models.FloatField('批次总成本(元)', default=0)
+    output_quantity = models.FloatField('产出数量(kg)', default=0)
+    unit_cost = models.FloatField('单位产出成本(元/kg)', default=0)
+    revenue = models.FloatField('销售收入(元)', default=0)
+    profit = models.FloatField('批次利润(元)', default=0)
+    profit_margin = models.FloatField('利润率(%)', default=0)
+    is_loss = models.BooleanField('是否亏损', default=False)
+    loss_warning_level = models.CharField('亏损预警级别', max_length=20,
+                                           choices=LOSS_WARNING_LEVEL_CHOICES,
+                                           null=True, blank=True)
+    warning_triggered = models.BooleanField('是否已触发预警', default=False)
+    last_calculated = models.DateTimeField('最后计算时间', auto_now=True)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-batch__start_date']
+        verbose_name = '批次成本汇总'
+        verbose_name_plural = '批次成本汇总'
+
+    def __str__(self):
+        return f'{self.batch.batch_no} - 成本汇总'
+
+    @classmethod
+    def calculate_for_batch(cls, batch):
+        material_cost = 0
+        for usage in batch.batch_materials.all():
+            if usage.outbound and usage.outbound.inbound_ref:
+                material_cost += usage.actual_quantity * usage.outbound.inbound_ref.unit_price
+
+        energy_cost = batch.energy_costs.aggregate(
+            total=models.Sum('total_amount'))['total'] or 0
+
+        labor_cost = batch.labor_costs.aggregate(
+            total=models.Sum('total_amount'))['total'] or 0
+
+        other_cost = batch.other_costs.aggregate(
+            total=models.Sum('amount'))['total'] or 0
+
+        loss_cost = 0
+        for usage in batch.batch_materials.all():
+            if usage.outbound and usage.outbound.inbound_ref:
+                loss_records = MaterialLoss.objects.filter(
+                    material=usage.material,
+                    inbound_ref=usage.outbound.inbound_ref
+                )
+                for loss in loss_records:
+                    loss_cost += loss.quantity * usage.outbound.inbound_ref.unit_price
+
+        total_cost = round(material_cost + energy_cost + labor_cost + other_cost + loss_cost, 2)
+
+        output_quantity = 0
+        crystallization_rate = None
+        crystal_purity = None
+        try:
+            output_quantity = batch.crystallizationresult.crystal_weight
+            crystallization_rate = batch.crystallizationresult.get_crystallization_rate()
+            crystal_purity = batch.crystallizationresult.crystal_purity
+        except CrystallizationResult.DoesNotExist:
+            pass
+
+        unit_cost = round(total_cost / output_quantity, 2) if output_quantity > 0 else 0
+
+        revenue = 0
+        try:
+            sale = batch.product_sale
+            revenue = sale.actual_revenue
+        except ProductSale.DoesNotExist:
+            pass
+
+        profit = round(revenue - total_cost, 2)
+        profit_margin = round((profit / revenue) * 100, 2) if revenue > 0 else 0
+        is_loss = profit < 0
+
+        loss_warning_level = None
+        if is_loss:
+            loss_ratio = abs(profit) / total_cost * 100 if total_cost > 0 else 0
+            if loss_ratio >= 20:
+                loss_warning_level = 'severe'
+            elif loss_ratio >= 10:
+                loss_warning_level = 'moderate'
+            else:
+                loss_warning_level = 'mild'
+
+        summary, created = cls.objects.get_or_create(
+            batch=batch,
+            defaults={
+                'material_cost': round(material_cost, 2),
+                'energy_cost': round(energy_cost, 2),
+                'labor_cost': round(labor_cost, 2),
+                'other_cost': round(other_cost, 2),
+                'loss_cost': round(loss_cost, 2),
+                'total_cost': total_cost,
+                'output_quantity': output_quantity,
+                'unit_cost': unit_cost,
+                'revenue': round(revenue, 2),
+                'profit': profit,
+                'profit_margin': profit_margin,
+                'is_loss': is_loss,
+                'loss_warning_level': loss_warning_level,
+            }
+        )
+
+        if not created:
+            summary.material_cost = round(material_cost, 2)
+            summary.energy_cost = round(energy_cost, 2)
+            summary.labor_cost = round(labor_cost, 2)
+            summary.other_cost = round(other_cost, 2)
+            summary.loss_cost = round(loss_cost, 2)
+            summary.total_cost = total_cost
+            summary.output_quantity = output_quantity
+            summary.unit_cost = unit_cost
+            summary.revenue = round(revenue, 2)
+            summary.profit = profit
+            summary.profit_margin = profit_margin
+            summary.is_loss = is_loss
+            summary.loss_warning_level = loss_warning_level
+            summary.save()
+
+        if is_loss and not summary.warning_triggered:
+            summary.warning_triggered = True
+            summary.save()
+            LossWarning.objects.create(
+                batch=batch,
+                cost_summary=summary,
+                warning_level=loss_warning_level,
+                warning_type='cost_overrun',
+                warning_title=f'批次 {batch.batch_no} 亏损预警',
+                warning_message=f'批次 {batch.batch_no} 亏损 {abs(profit):.2f} 元，'
+                                f'总成本 {total_cost:.2f} 元，收入 {revenue:.2f} 元，'
+                                f'利润率 {profit_margin:.2f}%',
+                indicator_value=profit,
+                threshold=0,
+            )
+
+        if revenue > 0 and profit_margin < 5 and profit_margin >= 0:
+            existing = LossWarning.objects.filter(
+                batch=batch,
+                warning_type='low_profit_margin',
+                warning_status__in=['active', 'acknowledged']
+            ).exists()
+            if not existing:
+                LossWarning.objects.create(
+                    batch=batch,
+                    cost_summary=summary,
+                    warning_level='mild',
+                    warning_type='low_profit_margin',
+                    warning_title=f'批次 {batch.batch_no} 利润率偏低',
+                    warning_message=f'批次 {batch.batch_no} 利润率仅 {profit_margin:.2f}%，'
+                                    f'收入 {revenue:.2f} 元，成本 {total_cost:.2f} 元，建议优化成本结构',
+                    indicator_value=profit_margin,
+                    threshold=5,
+                )
+
+        if output_quantity > 0:
+            avg_unit_cost = BatchCostSummary.objects.filter(
+                output_quantity__gt=0
+            ).aggregate(avg=Avg('unit_cost'))['avg']
+            if avg_unit_cost and unit_cost > avg_unit_cost * 1.3:
+                existing = LossWarning.objects.filter(
+                    batch=batch,
+                    warning_type='high_unit_cost',
+                    warning_status__in=['active', 'acknowledged']
+                ).exists()
+                if not existing:
+                    LossWarning.objects.create(
+                        batch=batch,
+                        cost_summary=summary,
+                        warning_level='moderate',
+                        warning_type='high_unit_cost',
+                        warning_title=f'批次 {batch.batch_no} 单位成本偏高',
+                        warning_message=f'批次 {batch.batch_no} 单位成本 {unit_cost:.2f} 元/kg，'
+                                        f'高于平均 {avg_unit_cost:.2f} 元/kg 的 30%，'
+                                        f'建议检查原料用量和工序能耗',
+                        indicator_value=unit_cost,
+                        threshold=round(avg_unit_cost * 1.3, 2),
+                    )
+
+        if crystallization_rate is not None and crystallization_rate < 15:
+            existing = LossWarning.objects.filter(
+                batch=batch,
+                warning_type='low_crystallization_rate',
+                warning_status__in=['active', 'acknowledged']
+            ).exists()
+            if not existing:
+                LossWarning.objects.create(
+                    batch=batch,
+                    cost_summary=summary,
+                    warning_level='moderate',
+                    warning_type='low_crystallization_rate',
+                    warning_title=f'批次 {batch.batch_no} 结晶率偏低影响效益',
+                    warning_message=f'批次 {batch.batch_no} 结晶率 {crystallization_rate:.2f}%，'
+                                    f'低于阈值 15%，纯度 {crystal_purity or 0:.1f}%，'
+                                    f'导致单位成本偏高至 {unit_cost:.2f} 元/kg，建议优化工艺参数',
+                    indicator_value=crystallization_rate,
+                    threshold=15,
+                )
+
+        abnormal_count = AbnormalDisposal.objects.filter(batch=batch).count()
+        if abnormal_count >= 2:
+            existing = LossWarning.objects.filter(
+                batch=batch,
+                warning_type='high_abnormal_rate',
+                warning_status__in=['active', 'acknowledged']
+            ).exists()
+            if not existing:
+                LossWarning.objects.create(
+                    batch=batch,
+                    cost_summary=summary,
+                    warning_level='moderate' if abnormal_count >= 3 else 'mild',
+                    warning_type='high_abnormal_rate',
+                    warning_title=f'批次 {batch.batch_no} 异常频发影响效益',
+                    warning_message=f'批次 {batch.batch_no} 累计 {abnormal_count} 次异常记录，'
+                                    f'可能影响产品质量和生产成本，建议排查原因',
+                    indicator_value=abnormal_count,
+                    threshold=2,
+                )
+
+        return summary
+
+
+class LossWarning(models.Model):
+    batch = models.ForeignKey(RawMaterialBatch, on_delete=models.CASCADE,
+                              verbose_name='生产批次', related_name='loss_warnings')
+    cost_summary = models.ForeignKey(BatchCostSummary, on_delete=models.CASCADE,
+                                      verbose_name='成本汇总', related_name='warnings',
+                                      null=True, blank=True)
+    warning_level = models.CharField('预警级别', max_length=20, choices=LOSS_WARNING_LEVEL_CHOICES)
+    warning_type = models.CharField('预警类型', max_length=50)
+    warning_title = models.CharField('预警标题', max_length=200)
+    warning_message = models.TextField('预警详情')
+    indicator_value = models.FloatField('指标数值', null=True, blank=True)
+    threshold = models.FloatField('预警阈值', null=True, blank=True)
+    warning_status = models.CharField('预警状态', max_length=20, choices=ALERT_STATUS_CHOICES,
+                                       default='active')
+    triggered_at = models.DateTimeField('触发时间', default=timezone.now)
+    acknowledged_at = models.DateTimeField('确认时间', null=True, blank=True)
+    resolved_at = models.DateTimeField('解决时间', null=True, blank=True)
+    acknowledged_by = models.CharField('确认人', max_length=50, blank=True)
+    resolved_by = models.CharField('处理人', max_length=50, blank=True)
+    handle_notes = models.TextField('处理备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-triggered_at']
+        verbose_name = '亏损预警记录'
+        verbose_name_plural = '亏损预警记录'
+
+    def __str__(self):
+        return f'{self.batch.batch_no} - {self.get_warning_level_display()} - {self.warning_title}'
+
+
+class SourceCostStats(models.Model):
+    material_source = models.CharField('原料来源', max_length=100, unique=True)
+    total_batches = models.IntegerField('总批次数', default=0)
+    completed_batches = models.IntegerField('已完成批次', default=0)
+    avg_material_cost = models.FloatField('平均原料成本(元)', null=True, blank=True)
+    avg_energy_cost = models.FloatField('平均能耗成本(元)', null=True, blank=True)
+    avg_labor_cost = models.FloatField('平均人工成本(元)', null=True, blank=True)
+    avg_other_cost = models.FloatField('平均其他费用(元)', null=True, blank=True)
+    avg_loss_cost = models.FloatField('平均损耗费用(元)', null=True, blank=True)
+    avg_total_cost = models.FloatField('平均总成本(元)', null=True, blank=True)
+    avg_unit_cost = models.FloatField('平均单位成本(元/kg)', null=True, blank=True)
+    avg_profit = models.FloatField('平均利润(元)', null=True, blank=True)
+    avg_profit_margin = models.FloatField('平均利润率(%)', null=True, blank=True)
+    avg_crystallization_rate = models.FloatField('平均结晶率(%)', null=True, blank=True)
+    avg_crystallization_purity = models.FloatField('平均纯度(%)', null=True, blank=True)
+    total_profit = models.FloatField('总利润(元)', default=0)
+    total_revenue = models.FloatField('总收入(元)', default=0)
+    total_cost = models.FloatField('总成本(元)', default=0)
+    loss_batches = models.IntegerField('亏损批次数', default=0)
+    loss_rate = models.FloatField('亏损率(%)', default=0)
+    abnormal_count = models.IntegerField('异常总次数', default=0)
+    benefit_score = models.FloatField('效益评分', null=True, blank=True)
+    benefit_level = models.CharField('效益等级', max_length=20, blank=True)
+    last_updated = models.DateTimeField('最后更新', auto_now=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-avg_profit_margin']
+        verbose_name = '原料来源效益统计'
+        verbose_name_plural = '原料来源效益统计'
+
+    def __str__(self):
+        return f'{self.material_source} - 效益统计'
+
+    @classmethod
+    def update_stats(cls, material_source=None):
+        sources = [material_source] if material_source else \
+            RawMaterialBatch.objects.values_list('material_source', flat=True).distinct()
+
+        for source in sources:
+            batches = RawMaterialBatch.objects.filter(material_source=source)
+            total = batches.count()
+            if total == 0:
+                continue
+
+            summaries = BatchCostSummary.objects.filter(batch__material_source=source)
+            completed = summaries.count()
+
+            if completed == 0:
+                stats_obj, _ = cls.objects.get_or_create(
+                    material_source=source,
+                    defaults={'total_batches': total, 'completed_batches': 0}
+                )
+                stats_obj.total_batches = total
+                stats_obj.completed_batches = 0
+                stats_obj.save()
+                continue
+
+            avg_mat = summaries.aggregate(avg=Avg('material_cost'))['avg'] or 0
+            avg_ene = summaries.aggregate(avg=Avg('energy_cost'))['avg'] or 0
+            avg_lab = summaries.aggregate(avg=Avg('labor_cost'))['avg'] or 0
+            avg_oth = summaries.aggregate(avg=Avg('other_cost'))['avg'] or 0
+            avg_los = summaries.aggregate(avg=Avg('loss_cost'))['avg'] or 0
+            avg_tot = summaries.aggregate(avg=Avg('total_cost'))['avg'] or 0
+            avg_uni = summaries.aggregate(avg=Avg('unit_cost'))['avg'] or 0
+            avg_pro = summaries.aggregate(avg=Avg('profit'))['avg'] or 0
+            avg_mar = summaries.aggregate(avg=Avg('profit_margin'))['avg'] or 0
+
+            sum_profit = summaries.aggregate(s=Sum('profit'))['s'] or 0
+            sum_revenue = summaries.aggregate(s=Sum('revenue'))['s'] or 0
+            sum_cost = summaries.aggregate(s=Sum('total_cost'))['s'] or 0
+
+            loss_count = summaries.filter(is_loss=True).count()
+            loss_rate = round((loss_count / completed) * 100, 2) if completed > 0 else 0
+
+            avg_crystal_rate = 0
+            avg_crystal_purity = 0
+            crystal_results = CrystallizationResult.objects.filter(
+                batch__material_source=source)
+            rates = [r.get_crystallization_rate() for r in crystal_results
+                     if r.batch.material_weight > 0]
+            purities = [r.crystal_purity for r in crystal_results]
+            if rates:
+                avg_crystal_rate = round(sum(rates) / len(rates), 2)
+            if purities:
+                avg_crystal_purity = round(sum(purities) / len(purities), 2)
+
+            abnormal_count = AbnormalDisposal.objects.filter(
+                batch__material_source=source).count()
+
+            benefit_score = round(
+                avg_mar * 0.4 + avg_crystal_rate * 0.3 + (100 - loss_rate) * 0.3, 2
+            )
+
+            if benefit_score >= 80:
+                benefit_level = '优秀'
+            elif benefit_score >= 60:
+                benefit_level = '良好'
+            elif benefit_score >= 40:
+                benefit_level = '一般'
+            else:
+                benefit_level = '较差'
+
+            stats_obj, _ = cls.objects.get_or_create(
+                material_source=source,
+                defaults={
+                    'total_batches': total,
+                    'completed_batches': completed,
+                    'avg_material_cost': round(avg_mat, 2),
+                    'avg_energy_cost': round(avg_ene, 2),
+                    'avg_labor_cost': round(avg_lab, 2),
+                    'avg_other_cost': round(avg_oth, 2),
+                    'avg_loss_cost': round(avg_los, 2),
+                    'avg_total_cost': round(avg_tot, 2),
+                    'avg_unit_cost': round(avg_uni, 2),
+                    'avg_profit': round(avg_pro, 2),
+                    'avg_profit_margin': round(avg_mar, 2),
+                    'avg_crystallization_rate': avg_crystal_rate,
+                    'avg_crystallization_purity': avg_crystal_purity,
+                    'total_profit': round(sum_profit, 2),
+                    'total_revenue': round(sum_revenue, 2),
+                    'total_cost': round(sum_cost, 2),
+                    'loss_batches': loss_count,
+                    'loss_rate': loss_rate,
+                    'abnormal_count': abnormal_count,
+                    'benefit_score': benefit_score,
+                    'benefit_level': benefit_level,
+                }
+            )
+
+            stats_obj.total_batches = total
+            stats_obj.completed_batches = completed
+            stats_obj.avg_material_cost = round(avg_mat, 2)
+            stats_obj.avg_energy_cost = round(avg_ene, 2)
+            stats_obj.avg_labor_cost = round(avg_lab, 2)
+            stats_obj.avg_other_cost = round(avg_oth, 2)
+            stats_obj.avg_loss_cost = round(avg_los, 2)
+            stats_obj.avg_total_cost = round(avg_tot, 2)
+            stats_obj.avg_unit_cost = round(avg_uni, 2)
+            stats_obj.avg_profit = round(avg_pro, 2)
+            stats_obj.avg_profit_margin = round(avg_mar, 2)
+            stats_obj.avg_crystallization_rate = avg_crystal_rate
+            stats_obj.avg_crystallization_purity = avg_crystal_purity
+            stats_obj.total_profit = round(sum_profit, 2)
+            stats_obj.total_revenue = round(sum_revenue, 2)
+            stats_obj.total_cost = round(sum_cost, 2)
+            stats_obj.loss_batches = loss_count
+            stats_obj.loss_rate = loss_rate
+            stats_obj.abnormal_count = abnormal_count
+            stats_obj.benefit_score = benefit_score
+            stats_obj.benefit_level = benefit_level
+            stats_obj.save()
+
+        return cls.objects.all()

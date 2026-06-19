@@ -21,7 +21,11 @@ from .models import (
     MaterialOutbound, MaterialLoss, BatchMaterialUsage,
     MaterialStockAlert, MaterialStockHistory,
     MATERIAL_UNIT_CHOICES, STOCK_ALERT_STATUS_CHOICES,
-    INBOUND_TYPE_CHOICES, OUTBOUND_TYPE_CHOICES, LOSS_REASON_CHOICES
+    INBOUND_TYPE_CHOICES, OUTBOUND_TYPE_CHOICES, LOSS_REASON_CHOICES,
+    ProcessEnergyCost, LaborCost, OtherCost, ProductSale,
+    BatchCostSummary, LossWarning, SourceCostStats,
+    ENERGY_TYPE_CHOICES, OTHER_COST_CATEGORY_CHOICES,
+    LOSS_WARNING_LEVEL_CHOICES, SALE_STATUS_CHOICES,
 )
 
 
@@ -3778,3 +3782,960 @@ def material_ledger_export(request):
         return response
     
     return redirect('production:material_ledger')
+
+
+def cost_dashboard(request):
+    total_batches = RawMaterialBatch.objects.count()
+    summaries = BatchCostSummary.objects.all()
+
+    source_filter = request.GET.get('source', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date')
+
+    filtered_batches = RawMaterialBatch.objects.all()
+    if source_filter:
+        filtered_batches = filtered_batches.filter(material_source__icontains=source_filter)
+    if start_date:
+        try:
+            s = datetime.strptime(start_date, '%Y-%m-%d').date()
+            filtered_batches = filtered_batches.filter(start_date__gte=s)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            e = datetime.strptime(end_date, '%Y-%m-%d').date()
+            filtered_batches = filtered_batches.filter(start_date__lte=e)
+        except ValueError:
+            pass
+
+    summaries = BatchCostSummary.objects.filter(batch__in=filtered_batches)
+
+    total_cost = summaries.aggregate(s=Sum('total_cost'))['s'] or 0
+    total_revenue = summaries.aggregate(s=Sum('revenue'))['s'] or 0
+    total_profit = summaries.aggregate(s=Sum('profit'))['s'] or 0
+    avg_profit_margin = summaries.aggregate(avg=Avg('profit_margin'))['avg'] or 0
+    avg_unit_cost = summaries.aggregate(avg=Avg('unit_cost'))['avg'] or 0
+    loss_count = summaries.filter(is_loss=True).count()
+    summary_count = summaries.count()
+
+    avg_material_cost = summaries.aggregate(avg=Avg('material_cost'))['avg'] or 0
+    avg_energy_cost = summaries.aggregate(avg=Avg('energy_cost'))['avg'] or 0
+    avg_labor_cost = summaries.aggregate(avg=Avg('labor_cost'))['avg'] or 0
+    avg_other_cost = summaries.aggregate(avg=Avg('other_cost'))['avg'] or 0
+    avg_loss_cost = summaries.aggregate(avg=Avg('loss_cost'))['avg'] or 0
+
+    cost_warning_count = LossWarning.objects.filter(warning_status='active').count()
+
+    today = timezone.now().date()
+    cost_trend = []
+    unit_cost_trend = []
+    for i in range(5, -1, -1):
+        month_date = today - timedelta(days=i * 30)
+        month_start = month_date.replace(day=1)
+        if month_start.month == 12:
+            next_month = month_start.replace(year=month_start.year + 1, month=1)
+        else:
+            next_month = month_start.replace(month=month_start.month + 1)
+
+        month_summaries = BatchCostSummary.objects.filter(
+            batch__start_date__gte=month_start,
+            batch__start_date__lt=next_month
+        )
+        month_cost = month_summaries.aggregate(s=Sum('total_cost'))['s'] or 0
+        month_revenue = month_summaries.aggregate(s=Sum('revenue'))['s'] or 0
+        month_profit = month_summaries.aggregate(s=Sum('profit'))['s'] or 0
+        month_unit_cost = month_summaries.aggregate(avg=Avg('unit_cost'))['avg'] or 0
+
+        cost_trend.append({
+            'month': month_start.strftime('%Y-%m'),
+            'cost': round(month_cost, 2),
+            'revenue': round(month_revenue, 2),
+            'profit': round(month_profit, 2),
+        })
+        unit_cost_trend.append({
+            'month': month_start.strftime('%Y-%m'),
+            'unit_cost': round(month_unit_cost, 2),
+        })
+
+    source_cost_data = []
+    sources = RawMaterialBatch.objects.filter(
+        pk__in=filtered_batches.values_list('pk', flat=True)
+    ).values_list('material_source', flat=True).distinct()
+    for source in sources:
+        source_summaries = summaries.filter(batch__material_source=source)
+        if source_summaries.exists():
+            source_cost_data.append({
+                'source': source,
+                'total_cost': round(source_summaries.aggregate(s=Sum('total_cost'))['s'] or 0, 2),
+                'total_revenue': round(source_summaries.aggregate(s=Sum('revenue'))['s'] or 0, 2),
+                'total_profit': round(source_summaries.aggregate(s=Sum('profit'))['s'] or 0, 2),
+                'avg_profit_margin': round(source_summaries.aggregate(avg=Avg('profit_margin'))['avg'] or 0, 2),
+                'batch_count': source_summaries.count(),
+                'loss_count': source_summaries.filter(is_loss=True).count(),
+            })
+
+    recent_summaries = summaries[:10]
+    active_warnings = LossWarning.objects.filter(warning_status='active')[:5]
+
+    chart_data = {
+        'cost_labels': ['原料成本', '能耗成本', '人工成本', '其他费用', '损耗费用'],
+        'cost_values': [round(avg_material_cost, 2), round(avg_energy_cost, 2),
+                        round(avg_labor_cost, 2), round(avg_other_cost, 2),
+                        round(avg_loss_cost, 2)],
+        'trend_labels': [t['month'] for t in cost_trend],
+        'trend_cost': [t['cost'] for t in cost_trend],
+        'trend_revenue': [t['revenue'] for t in cost_trend],
+        'trend_profit': [t['profit'] for t in cost_trend],
+        'unit_cost_labels': [t['month'] for t in unit_cost_trend],
+        'unit_cost_values': [t['unit_cost'] for t in unit_cost_trend],
+        'source_labels': [s['source'] for s in source_cost_data],
+        'source_costs': [s['total_cost'] for s in source_cost_data],
+        'source_profits': [s['total_profit'] for s in source_cost_data],
+        'source_margins': [s['avg_profit_margin'] for s in source_cost_data],
+    }
+
+    context = {
+        'total_batches': total_batches,
+        'summary_count': summary_count,
+        'total_cost': round(total_cost, 2),
+        'total_revenue': round(total_revenue, 2),
+        'total_profit': round(total_profit, 2),
+        'avg_profit_margin': round(avg_profit_margin, 2),
+        'avg_unit_cost': round(avg_unit_cost, 2),
+        'loss_count': loss_count,
+        'cost_warning_count': cost_warning_count,
+        'recent_summaries': recent_summaries,
+        'active_warnings': active_warnings,
+        'cost_trend': cost_trend,
+        'unit_cost_trend': unit_cost_trend,
+        'source_cost_data': source_cost_data,
+        'chart_data': chart_data,
+        'source_filter': source_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'sources': RawMaterialBatch.objects.values_list('material_source', flat=True).distinct(),
+    }
+    return render(request, 'production/cost_dashboard.html', context)
+
+
+def energy_cost_list(request):
+    costs = ProcessEnergyCost.objects.all()
+
+    batch_filter = request.GET.get('batch', '')
+    stage_filter = request.GET.get('stage', '')
+    energy_filter = request.GET.get('energy', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if batch_filter:
+        costs = costs.filter(batch__batch_no__icontains=batch_filter)
+    if stage_filter:
+        costs = costs.filter(stage_type=stage_filter)
+    if energy_filter:
+        costs = costs.filter(energy_type=energy_filter)
+    if start_date:
+        try:
+            s = datetime.strptime(start_date, '%Y-%m-%d').date()
+            costs = costs.filter(record_date__gte=s)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            e = datetime.strptime(end_date, '%Y-%m-%d').date()
+            costs = costs.filter(record_date__lte=e)
+        except ValueError:
+            pass
+
+    stats = {
+        'total_count': costs.count(),
+        'total_amount': round(costs.aggregate(s=Sum('total_amount'))['s'] or 0, 2),
+        'total_consumption': round(costs.aggregate(s=Sum('consumption'))['s'] or 0, 2),
+    }
+
+    stage_stats = []
+    for stage_type, stage_name in STAGE_CHOICES:
+        stage_costs = costs.filter(stage_type=stage_type)
+        if stage_costs.exists():
+            stage_stats.append({
+                'stage': stage_name,
+                'amount': round(stage_costs.aggregate(s=Sum('total_amount'))['s'] or 0, 2),
+                'count': stage_costs.count(),
+            })
+
+    context = {
+        'costs': costs[:100],
+        'stats': stats,
+        'stage_stats': stage_stats,
+        'batch_filter': batch_filter,
+        'stage_filter': stage_filter,
+        'energy_filter': energy_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'stage_choices': STAGE_CHOICES,
+        'energy_type_choices': ENERGY_TYPE_CHOICES,
+        'batches': RawMaterialBatch.objects.all(),
+    }
+    return render(request, 'production/energy_cost_list.html', context)
+
+
+def energy_cost_create(request, batch_id):
+    batch = get_object_or_404(RawMaterialBatch, pk=batch_id)
+
+    if request.method == 'POST':
+        stage_type = request.POST.get('stage_type', '')
+        energy_type = request.POST.get('energy_type', '')
+        consumption = request.POST.get('consumption', '')
+        unit = request.POST.get('unit', '').strip()
+        unit_price = request.POST.get('unit_price', '0')
+        record_date = request.POST.get('record_date', '')
+        meter_reading = request.POST.get('meter_reading', '').strip()
+        operator = request.POST.get('operator', '').strip()
+        remark = request.POST.get('remark', '').strip()
+
+        errors = []
+        if not stage_type:
+            errors.append('请选择工序阶段')
+        if not energy_type:
+            errors.append('请选择能源类型')
+        if not consumption or float(consumption) <= 0:
+            errors.append('请输入有效的消耗量')
+        if not unit:
+            errors.append('请输入计量单位')
+        if not operator:
+            errors.append('请输入记录人员')
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+        else:
+            try:
+                rec_date = datetime.strptime(record_date, '%Y-%m-%d').date() if record_date else date.today()
+                ProcessEnergyCost.objects.create(
+                    batch=batch,
+                    stage_type=stage_type,
+                    energy_type=energy_type,
+                    consumption=float(consumption),
+                    unit=unit,
+                    unit_price=float(unit_price) if unit_price else 0,
+                    record_date=rec_date,
+                    operator=operator,
+                    meter_reading=meter_reading,
+                    remark=remark,
+                )
+                BatchCostSummary.calculate_for_batch(batch)
+                SourceCostStats.update_stats(batch.material_source)
+                messages.success(request, '能耗记录添加成功')
+            except Exception as e:
+                messages.error(request, f'添加失败: {str(e)}')
+        return redirect('production:batch_cost_detail', pk=batch.pk)
+
+    context = {
+        'batch': batch,
+        'stage_choices': STAGE_CHOICES,
+        'energy_type_choices': ENERGY_TYPE_CHOICES,
+    }
+    return render(request, 'production/energy_cost_form.html', context)
+
+
+def energy_cost_delete(request, pk):
+    cost = get_object_or_404(ProcessEnergyCost, pk=pk)
+    batch_pk = cost.batch.pk
+    if request.method == 'POST':
+        batch = cost.batch
+        cost.delete()
+        BatchCostSummary.calculate_for_batch(batch)
+        SourceCostStats.update_stats(batch.material_source)
+        messages.success(request, '能耗记录已删除')
+    return redirect('production:batch_cost_detail', pk=batch_pk)
+
+
+def labor_cost_list(request):
+    costs = LaborCost.objects.all()
+
+    batch_filter = request.GET.get('batch', '')
+    stage_filter = request.GET.get('stage', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if batch_filter:
+        costs = costs.filter(batch__batch_no__icontains=batch_filter)
+    if stage_filter:
+        costs = costs.filter(stage_type=stage_filter)
+    if start_date:
+        try:
+            s = datetime.strptime(start_date, '%Y-%m-%d').date()
+            costs = costs.filter(work_date__gte=s)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            e = datetime.strptime(end_date, '%Y-%m-%d').date()
+            costs = costs.filter(work_date__lte=e)
+        except ValueError:
+            pass
+
+    stats = {
+        'total_count': costs.count(),
+        'total_amount': round(costs.aggregate(s=Sum('total_amount'))['s'] or 0, 2),
+        'total_hours': round(costs.aggregate(s=Sum('work_hours'))['s'] or 0, 2),
+    }
+
+    context = {
+        'costs': costs[:100],
+        'stats': stats,
+        'batch_filter': batch_filter,
+        'stage_filter': stage_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'stage_choices': STAGE_CHOICES,
+        'batches': RawMaterialBatch.objects.all(),
+    }
+    return render(request, 'production/labor_cost_list.html', context)
+
+
+def labor_cost_create(request, batch_id):
+    batch = get_object_or_404(RawMaterialBatch, pk=batch_id)
+
+    if request.method == 'POST':
+        stage_type = request.POST.get('stage_type', '') or None
+        worker_name = request.POST.get('worker_name', '').strip()
+        work_type = request.POST.get('work_type', '').strip()
+        work_hours = request.POST.get('work_hours', '')
+        hourly_rate = request.POST.get('hourly_rate', '0')
+        overtime_hours = request.POST.get('overtime_hours', '0')
+        overtime_rate = request.POST.get('overtime_rate', '0')
+        subsidy = request.POST.get('subsidy', '0')
+        deduction = request.POST.get('deduction', '0')
+        work_date = request.POST.get('work_date', '')
+        operator = request.POST.get('operator', '').strip()
+        remark = request.POST.get('remark', '').strip()
+
+        errors = []
+        if not worker_name:
+            errors.append('请输入工人姓名')
+        if not work_type:
+            errors.append('请输入工作类型')
+        if not work_hours or float(work_hours) <= 0:
+            errors.append('请输入有效的工时')
+        if not operator:
+            errors.append('请输入记录人员')
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+        else:
+            try:
+                w_date = datetime.strptime(work_date, '%Y-%m-%d').date() if work_date else date.today()
+                LaborCost.objects.create(
+                    batch=batch,
+                    stage_type=stage_type,
+                    worker_name=worker_name,
+                    work_type=work_type,
+                    work_hours=float(work_hours),
+                    hourly_rate=float(hourly_rate) if hourly_rate else 0,
+                    overtime_hours=float(overtime_hours) if overtime_hours else 0,
+                    overtime_rate=float(overtime_rate) if overtime_rate else 0,
+                    subsidy=float(subsidy) if subsidy else 0,
+                    deduction=float(deduction) if deduction else 0,
+                    work_date=w_date,
+                    operator=operator,
+                    remark=remark,
+                )
+                BatchCostSummary.calculate_for_batch(batch)
+                SourceCostStats.update_stats(batch.material_source)
+                messages.success(request, '人工费用记录添加成功')
+            except Exception as e:
+                messages.error(request, f'添加失败: {str(e)}')
+        return redirect('production:batch_cost_detail', pk=batch.pk)
+
+    context = {
+        'batch': batch,
+        'stage_choices': STAGE_CHOICES,
+    }
+    return render(request, 'production/labor_cost_form.html', context)
+
+
+def labor_cost_delete(request, pk):
+    cost = get_object_or_404(LaborCost, pk=pk)
+    batch_pk = cost.batch.pk
+    if request.method == 'POST':
+        batch = cost.batch
+        cost.delete()
+        BatchCostSummary.calculate_for_batch(batch)
+        SourceCostStats.update_stats(batch.material_source)
+        messages.success(request, '人工费用记录已删除')
+    return redirect('production:batch_cost_detail', pk=batch_pk)
+
+
+def other_cost_list(request):
+    costs = OtherCost.objects.all()
+
+    batch_filter = request.GET.get('batch', '')
+    category_filter = request.GET.get('category', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+
+    if batch_filter:
+        costs = costs.filter(batch__batch_no__icontains=batch_filter)
+    if category_filter:
+        costs = costs.filter(cost_category=category_filter)
+    if start_date:
+        try:
+            s = datetime.strptime(start_date, '%Y-%m-%d').date()
+            costs = costs.filter(cost_date__gte=s)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            e = datetime.strptime(end_date, '%Y-%m-%d').date()
+            costs = costs.filter(cost_date__lte=e)
+        except ValueError:
+            pass
+
+    stats = {
+        'total_count': costs.count(),
+        'total_amount': round(costs.aggregate(s=Sum('amount'))['s'] or 0, 2),
+    }
+
+    category_stats = []
+    for cat_val, cat_name in OTHER_COST_CATEGORY_CHOICES:
+        cat_costs = costs.filter(cost_category=cat_val)
+        if cat_costs.exists():
+            category_stats.append({
+                'category': cat_name,
+                'amount': round(cat_costs.aggregate(s=Sum('amount'))['s'] or 0, 2),
+                'count': cat_costs.count(),
+            })
+
+    context = {
+        'costs': costs[:100],
+        'stats': stats,
+        'category_stats': category_stats,
+        'batch_filter': batch_filter,
+        'category_filter': category_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'cost_category_choices': OTHER_COST_CATEGORY_CHOICES,
+        'batches': RawMaterialBatch.objects.all(),
+    }
+    return render(request, 'production/other_cost_list.html', context)
+
+
+def other_cost_create(request, batch_id):
+    batch = get_object_or_404(RawMaterialBatch, pk=batch_id)
+
+    if request.method == 'POST':
+        cost_category = request.POST.get('cost_category', '')
+        cost_name = request.POST.get('cost_name', '').strip()
+        amount = request.POST.get('amount', '')
+        quantity = request.POST.get('quantity', '1')
+        unit_price = request.POST.get('unit_price', '0')
+        cost_date = request.POST.get('cost_date', '')
+        operator = request.POST.get('operator', '').strip()
+        invoice_no = request.POST.get('invoice_no', '').strip()
+        remark = request.POST.get('remark', '').strip()
+
+        errors = []
+        if not cost_category:
+            errors.append('请选择费用类别')
+        if not cost_name:
+            errors.append('请输入费用名称')
+        if not amount or float(amount) <= 0:
+            errors.append('请输入有效的金额')
+        if not operator:
+            errors.append('请输入记录人员')
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+        else:
+            try:
+                c_date = datetime.strptime(cost_date, '%Y-%m-%d').date() if cost_date else date.today()
+                OtherCost.objects.create(
+                    batch=batch,
+                    cost_category=cost_category,
+                    cost_name=cost_name,
+                    amount=float(amount),
+                    quantity=float(quantity) if quantity else 1,
+                    unit_price=float(unit_price) if unit_price else 0,
+                    cost_date=c_date,
+                    operator=operator,
+                    invoice_no=invoice_no,
+                    remark=remark,
+                )
+                BatchCostSummary.calculate_for_batch(batch)
+                SourceCostStats.update_stats(batch.material_source)
+                messages.success(request, '其他费用记录添加成功')
+            except Exception as e:
+                messages.error(request, f'添加失败: {str(e)}')
+        return redirect('production:batch_cost_detail', pk=batch.pk)
+
+    context = {
+        'batch': batch,
+        'cost_category_choices': OTHER_COST_CATEGORY_CHOICES,
+    }
+    return render(request, 'production/other_cost_form.html', context)
+
+
+def other_cost_delete(request, pk):
+    cost = get_object_or_404(OtherCost, pk=pk)
+    batch_pk = cost.batch.pk
+    if request.method == 'POST':
+        batch = cost.batch
+        cost.delete()
+        BatchCostSummary.calculate_for_batch(batch)
+        SourceCostStats.update_stats(batch.material_source)
+        messages.success(request, '其他费用记录已删除')
+    return redirect('production:batch_cost_detail', pk=batch_pk)
+
+
+def product_sale_create(request, batch_id):
+    batch = get_object_or_404(RawMaterialBatch, pk=batch_id)
+
+    try:
+        sale = batch.product_sale
+        editing = True
+    except ProductSale.DoesNotExist:
+        sale = None
+        editing = False
+
+    if request.method == 'POST':
+        sale_quantity = request.POST.get('sale_quantity', '0')
+        unit_price = request.POST.get('unit_price', '0')
+        customer_name = request.POST.get('customer_name', '').strip()
+        sale_date = request.POST.get('sale_date', '')
+        discount = request.POST.get('discount', '0')
+        shipping_fee = request.POST.get('shipping_fee', '0')
+        other_income = request.POST.get('other_income', '0')
+        sale_status = request.POST.get('sale_status', 'pending')
+        operator = request.POST.get('operator', '').strip()
+        remark = request.POST.get('remark', '').strip()
+
+        errors = []
+        if not operator:
+            errors.append('请输入录入人员')
+
+        try:
+            sale_quantity = float(sale_quantity)
+            if sale_quantity < 0:
+                errors.append('销售数量不能为负数')
+        except (ValueError, TypeError):
+            errors.append('请输入有效的销售数量')
+
+        try:
+            unit_price = float(unit_price)
+            if unit_price < 0:
+                errors.append('销售单价不能为负数')
+        except (ValueError, TypeError):
+            errors.append('请输入有效的销售单价')
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+        else:
+            try:
+                s_date = None
+                if sale_date:
+                    s_date = datetime.strptime(sale_date, '%Y-%m-%d').date()
+
+                if editing:
+                    sale.sale_quantity = sale_quantity
+                    sale.unit_price = unit_price
+                    sale.customer_name = customer_name
+                    sale.sale_date = s_date
+                    sale.discount = float(discount) if discount else 0
+                    sale.shipping_fee = float(shipping_fee) if shipping_fee else 0
+                    sale.other_income = float(other_income) if other_income else 0
+                    sale.sale_status = sale_status
+                    sale.operator = operator
+                    sale.remark = remark
+                    sale.save()
+                    BatchCostSummary.calculate_for_batch(batch)
+                    SourceCostStats.update_stats(batch.material_source)
+                    messages.success(request, '销售记录更新成功')
+                else:
+                    ProductSale.objects.create(
+                        batch=batch,
+                        sale_quantity=sale_quantity,
+                        unit_price=unit_price,
+                        customer_name=customer_name,
+                        sale_date=s_date,
+                        discount=float(discount) if discount else 0,
+                        shipping_fee=float(shipping_fee) if shipping_fee else 0,
+                        other_income=float(other_income) if other_income else 0,
+                        sale_status=sale_status,
+                        operator=operator,
+                        remark=remark,
+                    )
+                    BatchCostSummary.calculate_for_batch(batch)
+                    SourceCostStats.update_stats(batch.material_source)
+                    messages.success(request, '销售记录添加成功')
+            except Exception as e:
+                messages.error(request, f'保存失败: {str(e)}')
+        return redirect('production:batch_cost_detail', pk=batch.pk)
+
+    context = {
+        'batch': batch,
+        'sale': sale,
+        'editing': editing,
+        'sale_status_choices': SALE_STATUS_CHOICES,
+    }
+    return render(request, 'production/product_sale_form.html', context)
+
+
+def batch_cost_detail(request, pk):
+    batch = get_object_or_404(RawMaterialBatch, pk=pk)
+
+    energy_costs = batch.energy_costs.all().order_by('-record_date')
+    labor_costs = batch.labor_costs.all().order_by('-work_date')
+    other_costs = batch.other_costs.all().order_by('-cost_date')
+
+    try:
+        sale = batch.product_sale
+    except ProductSale.DoesNotExist:
+        sale = None
+
+    try:
+        cost_summary = batch.cost_summary
+    except BatchCostSummary.DoesNotExist:
+        cost_summary = None
+
+    try:
+        crystallization = batch.crystallizationresult
+    except CrystallizationResult.DoesNotExist:
+        crystallization = None
+
+    energy_by_stage = {}
+    for cost in energy_costs:
+        key = cost.stage_type
+        if key not in energy_by_stage:
+            energy_by_stage[key] = {'amount': 0, 'count': 0, 'name': cost.get_stage_type_display()}
+        energy_by_stage[key]['amount'] += cost.total_amount
+        energy_by_stage[key]['count'] += 1
+
+    other_by_category = {}
+    for cost in other_costs:
+        key = cost.cost_category
+        if key not in other_by_category:
+            other_by_category[key] = {'amount': 0, 'count': 0, 'name': cost.get_cost_category_display()}
+        other_by_category[key]['amount'] += cost.amount
+        other_by_category[key]['count'] += 1
+
+    total_energy = sum(c.total_amount for c in energy_costs)
+    total_labor = sum(c.total_amount for c in labor_costs)
+    total_other = sum(c.amount for c in other_costs)
+
+    material_cost = 0
+    for usage in batch.batch_materials.all():
+        if usage.outbound and usage.outbound.inbound_ref:
+            material_cost += usage.actual_quantity * usage.outbound.inbound_ref.unit_price
+
+    loss_cost = 0
+    for usage in batch.batch_materials.all():
+        if usage.outbound and usage.outbound.inbound_ref:
+            loss_records = MaterialLoss.objects.filter(
+                material=usage.material,
+                inbound_ref=usage.outbound.inbound_ref
+            )
+            for loss in loss_records:
+                loss_cost += loss.quantity * usage.outbound.inbound_ref.unit_price
+
+    abnormal_count = AbnormalDisposal.objects.filter(batch=batch).count()
+
+    context = {
+        'batch': batch,
+        'energy_costs': energy_costs,
+        'labor_costs': labor_costs,
+        'other_costs': other_costs,
+        'sale': sale,
+        'cost_summary': cost_summary,
+        'crystallization': crystallization,
+        'energy_by_stage': list(energy_by_stage.values()),
+        'other_by_category': list(other_by_category.values()),
+        'total_energy': round(total_energy, 2),
+        'total_labor': round(total_labor, 2),
+        'total_other': round(total_other, 2),
+        'total_material': round(material_cost, 2),
+        'total_loss': round(loss_cost, 2),
+        'total_cost': round(material_cost + total_energy + total_labor + total_other + loss_cost, 2),
+        'abnormal_count': abnormal_count,
+        'stage_choices': STAGE_CHOICES,
+        'energy_type_choices': ENERGY_TYPE_CHOICES,
+        'cost_category_choices': OTHER_COST_CATEGORY_CHOICES,
+        'sale_status_choices': SALE_STATUS_CHOICES,
+    }
+    return render(request, 'production/batch_cost_detail.html', context)
+
+
+def cost_recalculate(request, pk):
+    batch = get_object_or_404(RawMaterialBatch, pk=pk)
+    if request.method == 'POST':
+        try:
+            BatchCostSummary.calculate_for_batch(batch)
+            messages.success(request, f'批次 {batch.batch_no} 成本已重新核算')
+        except Exception as e:
+            messages.error(request, f'核算失败: {str(e)}')
+    return redirect('production:batch_cost_detail', pk=pk)
+
+
+def cost_recalculate_all(request):
+    if request.method == 'POST':
+        try:
+            batches = RawMaterialBatch.objects.all()
+            count = 0
+            for batch in batches:
+                BatchCostSummary.calculate_for_batch(batch)
+                count += 1
+            SourceCostStats.update_stats()
+            messages.success(request, f'已完成 {count} 个批次的成本核算')
+        except Exception as e:
+            messages.error(request, f'核算失败: {str(e)}')
+    return redirect('production:cost_dashboard')
+
+
+def cost_comparison(request):
+    batches = RawMaterialBatch.objects.all()
+    selected_batches = request.GET.getlist('batches', [])
+
+    comparison_data = []
+    if selected_batches:
+        for batch_pk in selected_batches:
+            batch = RawMaterialBatch.objects.filter(pk=batch_pk).first()
+            if not batch:
+                continue
+
+            try:
+                cost_summary = batch.cost_summary
+            except BatchCostSummary.DoesNotExist:
+                cost_summary = None
+
+            try:
+                crystal = batch.crystallizationresult
+                rate = crystal.get_crystallization_rate()
+                purity = crystal.crystal_purity
+            except CrystallizationResult.DoesNotExist:
+                rate = None
+                purity = None
+
+            abnormal_count = batch.abnormaldisposal_set.count()
+
+            comparison_data.append({
+                'batch': batch,
+                'cost_summary': cost_summary,
+                'rate': rate,
+                'purity': purity,
+                'abnormal_count': abnormal_count,
+            })
+
+    chart_data = {
+        'labels': [d['batch'].batch_no for d in comparison_data],
+        'material_costs': [d['cost_summary'].material_cost if d['cost_summary'] else 0 for d in comparison_data],
+        'energy_costs': [d['cost_summary'].energy_cost if d['cost_summary'] else 0 for d in comparison_data],
+        'labor_costs': [d['cost_summary'].labor_cost if d['cost_summary'] else 0 for d in comparison_data],
+        'other_costs': [d['cost_summary'].other_cost if d['cost_summary'] else 0 for d in comparison_data],
+        'loss_costs': [d['cost_summary'].loss_cost if d['cost_summary'] else 0 for d in comparison_data],
+        'total_costs': [d['cost_summary'].total_cost if d['cost_summary'] else 0 for d in comparison_data],
+        'unit_costs': [d['cost_summary'].unit_cost if d['cost_summary'] else 0 for d in comparison_data],
+        'revenues': [d['cost_summary'].revenue if d['cost_summary'] else 0 for d in comparison_data],
+        'profits': [d['cost_summary'].profit if d['cost_summary'] else 0 for d in comparison_data],
+        'profit_margins': [d['cost_summary'].profit_margin if d['cost_summary'] else 0 for d in comparison_data],
+        'rates': [d['rate'] or 0 for d in comparison_data],
+        'purities': [d['purity'] or 0 for d in comparison_data],
+        'abnormal_counts': [d['abnormal_count'] for d in comparison_data],
+    }
+
+    context = {
+        'batches': batches,
+        'selected_batches': [int(b) for b in selected_batches],
+        'comparison_data': comparison_data,
+        'chart_data': chart_data,
+    }
+    return render(request, 'production/cost_comparison.html', context)
+
+
+def benefit_ranking(request):
+    SourceCostStats.update_stats()
+
+    summaries = BatchCostSummary.objects.all()
+
+    source_filter = request.GET.get('source', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    sort_by = request.GET.get('sort', 'profit_margin')
+
+    filtered_batches = RawMaterialBatch.objects.all()
+    if source_filter:
+        filtered_batches = filtered_batches.filter(material_source__icontains=source_filter)
+    if start_date:
+        try:
+            s = datetime.strptime(start_date, '%Y-%m-%d').date()
+            filtered_batches = filtered_batches.filter(start_date__gte=s)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            e = datetime.strptime(end_date, '%Y-%m-%d').date()
+            filtered_batches = filtered_batches.filter(start_date__lte=e)
+        except ValueError:
+            pass
+
+    summaries = BatchCostSummary.objects.filter(batch__in=filtered_batches)
+
+    if sort_by == 'profit':
+        summaries = summaries.order_by('-profit')
+    elif sort_by == 'profit_margin':
+        summaries = summaries.order_by('-profit_margin')
+    elif sort_by == 'total_cost':
+        summaries = summaries.order_by('total_cost')
+    elif sort_by == 'unit_cost':
+        summaries = summaries.order_by('unit_cost')
+    else:
+        summaries = summaries.order_by('-profit_margin')
+
+    source_stats = SourceCostStats.objects.all()
+    if source_filter:
+        source_stats = source_stats.filter(material_source__icontains=source_filter)
+
+    batch_ranking = []
+    for idx, s in enumerate(summaries):
+        try:
+            crystal = s.batch.crystallizationresult
+            rate = crystal.get_crystallization_rate()
+            purity = crystal.crystal_purity
+        except CrystallizationResult.DoesNotExist:
+            rate = None
+            purity = None
+
+        abnormal_count = s.batch.abnormaldisposal_set.count()
+
+        batch_ranking.append({
+            'rank': idx + 1,
+            'summary': s,
+            'rate': rate,
+            'purity': purity,
+            'abnormal_count': abnormal_count,
+        })
+
+    context = {
+        'batch_ranking': batch_ranking,
+        'source_stats': source_stats,
+        'source_filter': source_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'sort_by': sort_by,
+        'sources': RawMaterialBatch.objects.values_list('material_source', flat=True).distinct(),
+    }
+    return render(request, 'production/benefit_ranking.html', context)
+
+
+def loss_warning_list(request):
+    warnings = LossWarning.objects.all()
+
+    level_filter = request.GET.get('level', '')
+    status_filter = request.GET.get('status', '')
+    batch_filter = request.GET.get('batch', '')
+
+    if level_filter:
+        warnings = warnings.filter(warning_level=level_filter)
+    if status_filter:
+        warnings = warnings.filter(warning_status=status_filter)
+    if batch_filter:
+        warnings = warnings.filter(batch__batch_no__icontains=batch_filter)
+
+    stats = {
+        'total': warnings.count(),
+        'active': LossWarning.objects.filter(warning_status='active').count(),
+        'acknowledged': LossWarning.objects.filter(warning_status='acknowledged').count(),
+        'resolved': LossWarning.objects.filter(warning_status='resolved').count(),
+        'severe': LossWarning.objects.filter(warning_level='severe', warning_status__in=['active', 'acknowledged']).count(),
+        'moderate': LossWarning.objects.filter(warning_level='moderate', warning_status__in=['active', 'acknowledged']).count(),
+        'mild': LossWarning.objects.filter(warning_level='mild', warning_status__in=['active', 'acknowledged']).count(),
+    }
+
+    context = {
+        'warnings': warnings[:50],
+        'stats': stats,
+        'level_filter': level_filter,
+        'status_filter': status_filter,
+        'batch_filter': batch_filter,
+        'warning_level_choices': LOSS_WARNING_LEVEL_CHOICES,
+        'alert_status_choices': ALERT_STATUS_CHOICES,
+    }
+    return render(request, 'production/loss_warning_list.html', context)
+
+
+def loss_warning_detail(request, pk):
+    warning = get_object_or_404(LossWarning, pk=pk)
+
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        handler = request.POST.get('handler', '').strip()
+        notes = request.POST.get('handle_notes', '').strip()
+
+        if action == 'acknowledge':
+            warning.warning_status = 'acknowledged'
+            warning.acknowledged_at = timezone.now()
+            warning.acknowledged_by = handler or '系统管理员'
+            warning.handle_notes = notes
+            warning.save()
+            messages.success(request, '预警已确认')
+        elif action == 'resolve':
+            warning.warning_status = 'resolved'
+            warning.resolved_at = timezone.now()
+            warning.resolved_by = handler or '系统管理员'
+            warning.handle_notes = notes
+            warning.save()
+            messages.success(request, '预警已解决')
+        elif action == 'close':
+            warning.warning_status = 'closed'
+            warning.resolved_at = timezone.now()
+            warning.resolved_by = handler or '系统管理员'
+            warning.handle_notes = notes
+            warning.save()
+            messages.success(request, '预警已关闭')
+
+        return redirect('production:loss_warning_detail', pk=pk)
+
+    context = {
+        'warning': warning,
+    }
+    return render(request, 'production/loss_warning_detail.html', context)
+
+
+def source_cost_stats(request):
+    SourceCostStats.update_stats()
+
+    stats = SourceCostStats.objects.all()
+
+    source_filter = request.GET.get('source', '')
+    level_filter = request.GET.get('level', '')
+
+    if source_filter:
+        stats = stats.filter(material_source__icontains=source_filter)
+    if level_filter:
+        stats = stats.filter(benefit_level=level_filter)
+
+    chart_data = {
+        'sources': [s.material_source for s in stats],
+        'avg_total_costs': [s.avg_total_cost or 0 for s in stats],
+        'avg_profits': [s.avg_profit or 0 for s in stats],
+        'avg_profit_margins': [s.avg_profit_margin or 0 for s in stats],
+        'benefit_scores': [s.benefit_score or 0 for s in stats],
+        'loss_rates': [s.loss_rate for s in stats],
+        'avg_crystallization_rates': [s.avg_crystallization_rate or 0 for s in stats],
+        'avg_crystallization_purities': [s.avg_crystallization_purity or 0 for s in stats],
+        'abnormal_counts': [s.abnormal_count or 0 for s in stats],
+        'avg_material_costs': [s.avg_material_cost or 0 for s in stats],
+        'avg_energy_costs': [s.avg_energy_cost or 0 for s in stats],
+        'avg_labor_costs': [s.avg_labor_cost or 0 for s in stats],
+        'avg_other_costs': [s.avg_other_cost or 0 for s in stats],
+        'avg_loss_costs': [s.avg_loss_cost or 0 for s in stats],
+    }
+
+    context = {
+        'stats': stats,
+        'chart_data': chart_data,
+        'source_filter': source_filter,
+        'level_filter': level_filter,
+    }
+    return render(request, 'production/source_cost_stats.html', context)

@@ -1,0 +1,487 @@
+{% extends 'production/base.html' %}
+
+{% block title %}成本核算与效益分析总览 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">💰 成本核算与效益分析总览</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value">{{ total_batches }}</div>
+        <div class="stat-label">核算批次数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">¥{{ total_cost|floatformat:2 }}</div>
+        <div class="stat-label">总成本</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">¥{{ total_revenue|floatformat:2 }}</div>
+        <div class="stat-label">总收入</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: {% if total_profit >= 0 %}#27ae60{% else %}#e74c3c{% endif %};">¥{{ total_profit|floatformat:2 }}</div>
+        <div class="stat-label">总利润</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: {% if avg_profit_margin >= 0 %}#27ae60{% else %}#e74c3c{% endif %};">{{ avg_profit_margin|floatformat:2 }}%</div>
+        <div class="stat-label">平均利润率</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #667eea;">¥{{ avg_unit_cost|floatformat:2 }}/kg</div>
+        <div class="stat-label">平均单位成本</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ loss_count }}</div>
+        <div class="stat-label">亏损批次</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ cost_warning_count }}</div>
+        <div class="stat-label">活跃预警</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <form method="get" action="{% url 'production:cost_dashboard' %}" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group">
+            <label>原料来源</label>
+            <select name="source">
+                <option value="">全部来源</option>
+                {% for source in sources %}
+                <option value="{{ source }}" {% if source == source_filter %}selected{% endif %}>{{ source }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date|default:'' }}">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date|default:'' }}">
+        </div>
+        <button type="submit" class="btn btn-primary">筛选</button>
+        <a href="{% url 'production:cost_dashboard' %}" class="btn btn-warning">重置</a>
+        <form method="post" action="{% url 'production:cost_recalculate_all' %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-danger" onclick="return confirm('确认重新核算全部批次成本？此操作可能需要较长时间。')">🔄 重新核算全部</button>
+        </form>
+    </form>
+</div>
+
+{% if cost_warning_count > 0 %}
+<div class="card" style="background: linear-gradient(135deg, #fff5f5 0%, #fff0f0 100%); border-left: 4px solid #e74c3c;">
+    <h3 class="card-title" style="color: #e74c3c;">⚠️ 成本预警提醒</h3>
+    <p>当前有 <strong>{{ cost_warning_count }}</strong> 条成本预警，请及时关注。</p>
+    <a href="{% url 'production:loss_warning_list' %}" class="btn btn-sm btn-danger" style="margin-top: 10px;">查看预警</a>
+</div>
+{% endif %}
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">📊 成本结构分布</h3>
+        <div class="chart-container">
+            <canvas id="costStructureChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">📈 成本-收入-利润趋势</h3>
+        <div class="chart-container">
+            <canvas id="costTrendChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">📉 单位成本趋势</h3>
+        <div class="chart-container">
+            <canvas id="unitCostTrendChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">🏭 按来源成本与利润对比</h3>
+        <div class="chart-container">
+            <canvas id="sourceCostChart"></canvas>
+        </div>
+    </div>
+</div>
+
+{% if source_cost_data %}
+<div class="card">
+    <h3 class="card-title">📋 按原料来源成本统计</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>原料来源</th>
+                <th>批次数</th>
+                <th>总成本(元)</th>
+                <th>总收入(元)</th>
+                <th>总利润(元)</th>
+                <th>平均利润率</th>
+                <th>亏损批次数</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for data in source_cost_data %}
+            <tr>
+                <td><strong>{{ data.source }}</strong></td>
+                <td>{{ data.batch_count }}</td>
+                <td>¥{{ data.total_cost|floatformat:2 }}</td>
+                <td>¥{{ data.total_revenue|floatformat:2 }}</td>
+                <td style="color: {% if data.total_profit >= 0 %}#27ae60{% else %}#e74c3c{% endif %};">¥{{ data.total_profit|floatformat:2 }}</td>
+                <td>
+                    {% if data.avg_profit_margin < 0 %}
+                    <span class="badge badge-danger">{{ data.avg_profit_margin|floatformat:1 }}%</span>
+                    {% elif data.avg_profit_margin < 10 %}
+                    <span class="badge badge-warning">{{ data.avg_profit_margin|floatformat:1 }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ data.avg_profit_margin|floatformat:1 }}%</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if data.loss_count > 0 %}
+                    <span class="badge badge-danger">{{ data.loss_count }}</span>
+                    {% else %}
+                    <span class="badge badge-success">0</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3 class="card-title">📋 近期成本核算汇总</h3>
+    {% if recent_summaries %}
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>原料来源</th>
+                <th>总成本</th>
+                <th>单位成本</th>
+                <th>收入</th>
+                <th>利润</th>
+                <th>利润率</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for summary in recent_summaries %}
+            <tr>
+                <td>{{ summary.batch.batch_no }}</td>
+                <td>{{ summary.batch.material_source }}</td>
+                <td>¥{{ summary.total_cost|floatformat:2 }}</td>
+                <td>¥{{ summary.unit_cost|floatformat:2 }}/kg</td>
+                <td>¥{{ summary.revenue|floatformat:2 }}</td>
+                <td style="color: {% if summary.profit >= 0 %}#27ae60{% else %}#e74c3c{% endif %};">¥{{ summary.profit|floatformat:2 }}</td>
+                <td>
+                    {% if summary.profit_margin >= 0 %}
+                    <span class="badge badge-success">{{ summary.profit_margin|floatformat:2 }}%</span>
+                    {% else %}
+                    <span class="badge badge-danger">{{ summary.profit_margin|floatformat:2 }}%</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'production:batch_cost_detail' summary.batch.pk %}" class="btn btn-sm btn-primary">查看明细</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无成本核算数据</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">🚨 活跃亏损预警</h3>
+    {% if active_warnings %}
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>预警类型</th>
+                <th>指标数值</th>
+                <th>预警级别</th>
+                <th>预警时间</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for warning in active_warnings %}
+            <tr>
+                <td>{{ warning.batch.batch_no }}</td>
+                <td>{{ warning.warning_type }}</td>
+                <td style="color: #e74c3c;">{{ warning.indicator_value|floatformat:2 }}</td>
+                <td>
+                    {% if warning.warning_level == 'severe' %}
+                    <span class="badge badge-danger">重度</span>
+                    {% elif warning.warning_level == 'moderate' %}
+                    <span class="badge badge-warning">中度</span>
+                    {% else %}
+                    <span class="badge badge-info">轻度</span>
+                    {% endif %}
+                </td>
+                <td>{{ warning.triggered_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    {% if warning.warning_status == 'active' %}
+                    <span class="badge badge-danger">未处理</span>
+                    {% elif warning.warning_status == 'acknowledged' %}
+                    <span class="badge badge-warning">已确认</span>
+                    {% else %}
+                    <span class="badge badge-success">已解决</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <div style="margin-top: 15px;">
+        <a href="{% url 'production:loss_warning_list' %}" class="btn btn-primary">查看全部预警</a>
+    </div>
+    {% else %}
+    <p style="color: #999;">当前无活跃亏损预警</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔗 快捷功能入口</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;">
+        <a href="{% url 'production:cost_comparison' %}" class="btn btn-primary" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📊</div>
+            <div>成本对比</div>
+        </a>
+        <a href="{% url 'production:benefit_ranking' %}" class="btn btn-success" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🏆</div>
+            <div>效益排行</div>
+        </a>
+        <a href="{% url 'production:loss_warning_list' %}" class="btn btn-danger" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">🚨</div>
+            <div>亏损预警</div>
+        </a>
+        <a href="{% url 'production:source_cost_stats' %}" class="btn btn-warning" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📈</div>
+            <div>来源效益</div>
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const costLabels = {{ chart_data.cost_labels|safe }};
+const costValues = {{ chart_data.cost_values|safe }};
+const trendLabels = {{ chart_data.trend_labels|safe }};
+const trendCost = {{ chart_data.trend_cost|safe }};
+const trendRevenue = {{ chart_data.trend_revenue|safe }};
+const trendProfit = {{ chart_data.trend_profit|safe }};
+const unitCostLabels = {{ chart_data.unit_cost_labels|safe }};
+const unitCostValues = {{ chart_data.unit_cost_values|safe }};
+const sourceLabels = {{ chart_data.source_labels|safe }};
+const sourceCosts = {{ chart_data.source_costs|safe }};
+const sourceProfits = {{ chart_data.source_profits|safe }};
+const sourceMargins = {{ chart_data.source_margins|safe }};
+
+const pieColors = [
+    '#667eea', '#27ae60', '#f39c12', '#e74c3c', '#e67e22',
+    '#3498db', '#1abc9c', '#9b59b6', '#2ecc71'
+];
+
+new Chart(document.getElementById('costStructureChart').getContext('2d'), {
+    type: 'pie',
+    data: {
+        labels: costLabels,
+        datasets: [{
+            data: costValues,
+            backgroundColor: pieColors.slice(0, costLabels.length),
+            borderWidth: 2,
+            borderColor: '#fff',
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'right',
+            },
+            title: {
+                display: true,
+                text: '成本结构分布'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        let label = context.label || '';
+                        let value = context.parsed || 0;
+                        return label + ': ¥' + value.toFixed(2);
+                    }
+                }
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('costTrendChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: trendLabels,
+        datasets: [
+            {
+                label: '成本',
+                data: trendCost,
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                fill: false,
+            },
+            {
+                label: '收入',
+                data: trendRevenue,
+                borderColor: '#27ae60',
+                backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                tension: 0.3,
+                fill: false,
+            },
+            {
+                label: '利润',
+                data: trendProfit,
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                tension: 0.3,
+                fill: true,
+                borderDash: [5, 5],
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: '金额 (¥)'
+                },
+                ticks: {
+                    callback: function(value) {
+                        return '¥' + value;
+                    }
+                }
+            },
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: '成本-收入-利润月度趋势'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ¥' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('unitCostTrendChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: unitCostLabels,
+        datasets: [{
+            label: '平均单位成本(元/kg)',
+            data: unitCostValues,
+            borderColor: '#e67e22',
+            backgroundColor: 'rgba(230, 126, 34, 0.15)',
+            tension: 0.3,
+            fill: true,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: { display: true, text: '单位成本 (元/kg)' },
+                ticks: {
+                    callback: function(value) { return '¥' + value; }
+                }
+            }
+        },
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '单位成本月度趋势' },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return '单位成本: ¥' + context.parsed.y.toFixed(2) + '/kg';
+                    }
+                }
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('sourceCostChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: sourceLabels,
+        datasets: [
+            {
+                label: '总成本(元)',
+                data: sourceCosts,
+                backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                borderColor: '#e74c3c',
+                borderWidth: 1,
+            },
+            {
+                label: '总利润(元)',
+                data: sourceProfits,
+                backgroundColor: sourceProfits.map(v => v >= 0 ? 'rgba(39, 174, 96, 0.7)' : 'rgba(231, 76, 60, 0.4)'),
+                borderColor: sourceProfits.map(v => v >= 0 ? '#27ae60' : '#c0392b'),
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '各来源成本与利润对比' },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ¥' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) { return '¥' + value; }
+                }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

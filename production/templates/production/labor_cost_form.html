@@ -1,0 +1,94 @@
+{% extends 'production/base.html' %}
+
+{% block title %}添加人工费用 - {{ batch.batch_no }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">👷 添加人工费用 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+        <p><strong>批次信息：</strong></p>
+        <p>原料来源：{{ batch.material_source }} | 原料重量：{{ batch.material_weight }}kg</p>
+    </div>
+
+    <form method="post" action="{% url 'production:labor_cost_create' batch.pk %}">
+        {% csrf_token %}
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>工序阶段</label>
+                <select name="stage_type">
+                    <option value="">请选择工序阶段</option>
+                    {% for value, label in stage_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>工人姓名 *</label>
+                <input type="text" name="worker_name" required placeholder="请输入工人姓名">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>工作类型 *</label>
+                <input type="text" name="work_type" required placeholder="如：操作工、检验员等">
+            </div>
+            <div class="form-group">
+                <label>工时(小时) *</label>
+                <input type="number" name="work_hours" step="0.5" required placeholder="请输入工时">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>时薪(元/小时)</label>
+                <input type="number" name="hourly_rate" step="0.01" value="0" placeholder="请输入时薪">
+            </div>
+            <div class="form-group">
+                <label>加班时长(小时)</label>
+                <input type="number" name="overtime_hours" step="0.5" value="0" placeholder="加班时长">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>加班费率(元/小时)</label>
+                <input type="number" name="overtime_rate" step="0.01" value="0" placeholder="加班费率">
+            </div>
+            <div class="form-group">
+                <label>补贴(元)</label>
+                <input type="number" name="subsidy" step="0.01" value="0" placeholder="补贴金额">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>扣款(元)</label>
+                <input type="number" name="deduction" step="0.01" value="0" placeholder="扣款金额">
+            </div>
+            <div class="form-group">
+                <label>工作日期</label>
+                <input type="date" name="work_date">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>记录人员 *</label>
+                <input type="text" name="operator" required placeholder="请输入记录人员姓名">
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <input type="text" name="remark" placeholder="请输入备注信息">
+            </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">保存人工费用</button>
+            <a href="{% url 'production:batch_cost_detail' batch.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

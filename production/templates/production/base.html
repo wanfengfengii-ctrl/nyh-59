@@ -474,6 +474,17 @@
                 <li><a href="{% url 'production:material_ledger' %}" class="{% if 'ledger' in request.resolver_match.url_name %}active{% endif %}">📒 原料台账</a></li>
                 <li><a href="{% url 'production:material_statistics' %}" class="{% if 'statistics' in request.resolver_match.url_name %}active{% endif %}">📊 统计分析</a></li>
                 <li><a href="{% url 'production:material_stock_alert_list' %}" class="{% if 'stock_alert' in request.resolver_match.url_name %}active{% endif %}">🚨 库存预警</a></li>
+                <li style="border-top: 1px solid #34495e; margin-top: 10px; padding-top: 10px;">
+                    <strong style="color: #667eea; padding: 0 25px; display: block; margin-bottom: 5px;">成本核算与效益分析</strong>
+                </li>
+                <li><a href="{% url 'production:cost_dashboard' %}" class="{% if request.resolver_match.url_name == 'cost_dashboard' %}active{% endif %}">💰 成本总览</a></li>
+                <li><a href="{% url 'production:energy_cost_list' %}" class="{% if 'energy_cost' in request.resolver_match.url_name %}active{% endif %}">⚡ 能耗成本</a></li>
+                <li><a href="{% url 'production:labor_cost_list' %}" class="{% if 'labor_cost' in request.resolver_match.url_name %}active{% endif %}">👷 人工费用</a></li>
+                <li><a href="{% url 'production:other_cost_list' %}" class="{% if 'other_cost' in request.resolver_match.url_name %}active{% endif %}">📋 其他费用</a></li>
+                <li><a href="{% url 'production:cost_comparison' %}" class="{% if request.resolver_match.url_name == 'cost_comparison' %}active{% endif %}">📊 成本对比</a></li>
+                <li><a href="{% url 'production:benefit_ranking' %}" class="{% if request.resolver_match.url_name == 'benefit_ranking' %}active{% endif %}">🏆 效益排行</a></li>
+                <li><a href="{% url 'production:loss_warning_list' %}" class="{% if 'loss_warning' in request.resolver_match.url_name %}active{% endif %}">🚨 亏损预警</a></li>
+                <li><a href="{% url 'production:source_cost_stats' %}" class="{% if request.resolver_match.url_name == 'source_cost_stats' %}active{% endif %}">📈 来源效益</a></li>
                 <li><a href="/admin/" target="_blank">🔧 管理后台</a></li>
             </ul>
         </div>

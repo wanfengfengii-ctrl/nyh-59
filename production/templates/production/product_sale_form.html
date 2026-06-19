@@ -1,0 +1,105 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{% if editing %}编辑{% else %}新增{% endif %}销售记录 - {{ batch.batch_no }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">💰 {% if editing %}编辑{% else %}新增{% endif %}销售记录 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="label">批次编号</div>
+                <div class="value">{{ batch.batch_no }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">原料来源</div>
+                <div class="value">{{ batch.material_source }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">原料重量</div>
+                <div class="value">{{ batch.material_weight }} kg</div>
+            </div>
+        </div>
+    </div>
+
+    <form method="post" action="{% url 'production:product_sale_create' batch.pk %}">
+        {% csrf_token %}
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>销售数量(kg) *</label>
+                <input type="number" name="sale_quantity" step="0.01" required
+                    value="{% if sale %}{{ sale.sale_quantity }}{% endif %}" placeholder="请输入销售数量">
+            </div>
+            <div class="form-group">
+                <label>单价(元/kg) *</label>
+                <input type="number" name="unit_price" step="0.01" required
+                    value="{% if sale %}{{ sale.unit_price }}{% endif %}" placeholder="请输入单价">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>客户名称</label>
+                <input type="text" name="customer_name"
+                    value="{% if sale %}{{ sale.customer_name }}{% endif %}" placeholder="请输入客户名称">
+            </div>
+            <div class="form-group">
+                <label>销售日期 *</label>
+                <input type="date" name="sale_date" required
+                    value="{% if sale %}{{ sale.sale_date|date:'Y-m-d' }}{% else %}{% now 'Y-m-d' %}{% endif %}">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>折扣</label>
+                <input type="number" name="discount" step="0.01"
+                    value="{% if sale %}{{ sale.discount }}{% else %}1.00{% endif %}" placeholder="折扣比例，如0.95">
+            </div>
+            <div class="form-group">
+                <label>运费(元)</label>
+                <input type="number" name="shipping_fee" step="0.01"
+                    value="{% if sale %}{{ sale.shipping_fee|default:0 }}{% else %}0{% endif %}" placeholder="请输入运费">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>其他收入(元)</label>
+                <input type="number" name="other_income" step="0.01"
+                    value="{% if sale %}{{ sale.other_income|default:0 }}{% else %}0{% endif %}" placeholder="副产品等收入">
+            </div>
+            <div class="form-group">
+                <label>销售状态 *</label>
+                <select name="sale_status" required>
+                    {% for value, label in sale_status_choices %}
+                    <option value="{{ value }}" {% if sale and sale.sale_status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>操作人</label>
+                <input type="text" name="operator"
+                    value="{% if sale %}{{ sale.operator }}{% endif %}" placeholder="请输入操作人">
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <input type="text" name="remark"
+                    value="{% if sale %}{{ sale.remark }}{% endif %}" placeholder="请输入备注">
+            </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">
+                {% if editing %}保存修改{% else %}提交销售记录{% endif %}
+            </button>
+            <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

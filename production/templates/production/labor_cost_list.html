@@ -1,0 +1,113 @@
+{% extends 'production/base.html' %}
+
+{% block title %}人工费用 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">👷 人工费用</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>批次</label>
+        <select id="batchFilter">
+            <option value="">全部批次</option>
+            {% for batch in batches %}
+            <option value="{{ batch.pk }}" {% if batch_filter == batch.pk|stringformat:"i" %}selected{% endif %}>{{ batch.batch_no }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>阶段</label>
+        <select id="stageFilter">
+            <option value="">全部阶段</option>
+            {% for value, label in stage_choices %}
+            <option value="{{ value }}" {% if stage_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>开始日期</label>
+        <input type="date" id="startDate" value="{{ start_date|default:'' }}">
+    </div>
+    <div class="form-group">
+        <label>结束日期</label>
+        <input type="date" id="endDate" value="{{ end_date|default:'' }}">
+    </div>
+    <button class="btn btn-primary" onclick="filterCosts()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_count }}</div>
+        <div class="stat-label">总记录数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_amount|floatformat:2 }}</div>
+        <div class="stat-label">总金额(元)</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_hours|floatformat:1 }}</div>
+        <div class="stat-label">总工时(h)</div>
+    </div>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>阶段</th>
+                <th>工人姓名</th>
+                <th>工种</th>
+                <th>工时(h)</th>
+                <th>时薪(元/h)</th>
+                <th>总金额(元)</th>
+                <th>工作日期</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cost in costs %}
+            <tr>
+                <td><strong>{{ cost.batch.batch_no }}</strong></td>
+                <td>{{ cost.get_stage_type_display }}</td>
+                <td>{{ cost.worker_name }}</td>
+                <td>{{ cost.work_type }}</td>
+                <td>{{ cost.work_hours|floatformat:1 }}</td>
+                <td>{{ cost.hourly_rate|floatformat:2 }}</td>
+                <td style="font-weight: 600;">{{ cost.total_amount|floatformat:2 }}</td>
+                <td>{{ cost.work_date|date:"Y-m-d" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: #999; padding: 30px;">
+                    暂无人工费用记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterCosts() {
+    const batch = document.getElementById('batchFilter').value;
+    const stage = document.getElementById('stageFilter').value;
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+
+    let url = '{% url "production:labor_cost_list" %}?';
+    if (batch) url += 'batch=' + encodeURIComponent(batch) + '&';
+    if (stage) url += 'stage=' + encodeURIComponent(stage) + '&';
+    if (start) url += 'start_date=' + encodeURIComponent(start) + '&';
+    if (end) url += 'end_date=' + encodeURIComponent(end);
+
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:labor_cost_list" %}';
+}
+</script>
+{% endblock %}

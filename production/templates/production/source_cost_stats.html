@@ -1,0 +1,352 @@
+{% extends 'production/base.html' %}
+
+{% block title %}来源效益 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📈 来源效益分析</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料来源</label>
+        <select id="sourceFilter">
+            <option value="">全部来源</option>
+            {% for stat in stats %}
+            <option value="{{ stat.material_source }}" {% if source_filter == stat.material_source %}selected{% endif %}>{{ stat.material_source }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>效益等级</label>
+        <select id="levelFilter">
+            <option value="">全部等级</option>
+            <option value="优秀" {% if level_filter == '优秀' %}selected{% endif %}>优秀</option>
+            <option value="良好" {% if level_filter == '良好' %}selected{% endif %}>良好</option>
+            <option value="一般" {% if level_filter == '一般' %}selected{% endif %}>一般</option>
+            <option value="较差" {% if level_filter == '较差' %}selected{% endif %}>较差</option>
+        </select>
+    </div>
+    <button class="btn btn-primary" onclick="filterStats()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="card">
+    <h3 class="card-title">来源效益统计</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>原料来源</th>
+                <th>批次数</th>
+                <th>平均总成本(元)</th>
+                <th>平均利润(元)</th>
+                <th>平均利润率</th>
+                <th>平均结晶率</th>
+                <th>平均纯度</th>
+                <th>异常次数</th>
+                <th>损耗率</th>
+                <th>效益等级</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stat in stats %}
+            <tr>
+                <td><strong>{{ stat.material_source }}</strong></td>
+                <td>{{ stat.completed_batches }}/{{ stat.total_batches }}</td>
+                <td>{{ stat.avg_total_cost|floatformat:2 }}</td>
+                <td style="font-weight: 600; {% if stat.avg_profit < 0 %}color: #e74c3c;{% else %}color: #27ae60;{% endif %}">
+                    {{ stat.avg_profit|floatformat:2 }}
+                </td>
+                <td>
+                    {% if stat.avg_profit_margin < 0 %}
+                    <span class="badge badge-danger">{{ stat.avg_profit_margin|floatformat:1 }}%</span>
+                    {% elif stat.avg_profit_margin < 10 %}
+                    <span class="badge badge-warning">{{ stat.avg_profit_margin|floatformat:1 }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ stat.avg_profit_margin|floatformat:1 }}%</span>
+                    {% endif %}
+                </td>
+                <td>{{ stat.avg_crystallization_rate|floatformat:1|default:"-" }}%</td>
+                <td>{{ stat.avg_crystallization_purity|floatformat:1|default:"-" }}%</td>
+                <td>
+                    {% if stat.abnormal_count > 0 %}
+                    <span class="badge badge-danger">{{ stat.abnormal_count }}</span>
+                    {% else %}
+                    <span class="badge badge-success">0</span>
+                    {% endif %}
+                </td>
+                <td>{{ stat.loss_rate|floatformat:1 }}%</td>
+                <td>
+                    {% if stat.benefit_level == '优秀' %}
+                    <span class="badge badge-success">{{ stat.benefit_level }}</span>
+                    {% elif stat.benefit_level == '良好' %}
+                    <span class="badge badge-info">{{ stat.benefit_level }}</span>
+                    {% elif stat.benefit_level == '一般' %}
+                    <span class="badge badge-warning">{{ stat.benefit_level }}</span>
+                    {% else %}
+                    <span class="badge badge-danger">{{ stat.benefit_level }}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无来源效益数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">利润率与损耗率对比</h3>
+        <div class="chart-container">
+            <canvas id="profitMarginChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">效益评分排名</h3>
+        <div class="chart-container">
+            <canvas id="benefitScoreChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">结晶率与纯度关联</h3>
+        <div class="chart-container">
+            <canvas id="qualityChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">各来源成本结构</h3>
+        <div class="chart-container">
+            <canvas id="costBreakdownChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const chartData = {
+    sources: {{ chart_data.sources|safe }},
+    avgTotalCosts: {{ chart_data.avg_total_costs|safe }},
+    avgProfits: {{ chart_data.avg_profits|safe }},
+    avgProfitMargins: {{ chart_data.avg_profit_margins|safe }},
+    benefitScores: {{ chart_data.benefit_scores|safe }},
+    lossRates: {{ chart_data.loss_rates|safe }},
+    avgCrystallizationRates: {{ chart_data.avg_crystallization_rates|safe }},
+    avgCrystallizationPurities: {{ chart_data.avg_crystallization_purities|safe }},
+    abnormalCounts: {{ chart_data.abnormal_counts|safe }},
+    avgMaterialCosts: {{ chart_data.avg_material_costs|safe }},
+    avgEnergyCosts: {{ chart_data.avg_energy_costs|safe }},
+    avgLaborCosts: {{ chart_data.avg_labor_costs|safe }},
+    avgOtherCosts: {{ chart_data.avg_other_costs|safe }},
+    avgLossCosts: {{ chart_data.avg_loss_costs|safe }},
+};
+
+new Chart(document.getElementById('profitMarginChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: chartData.sources,
+        datasets: [
+            {
+                label: '平均利润率(%)',
+                data: chartData.avgProfitMargins,
+                backgroundColor: chartData.avgProfitMargins.map(v =>
+                    v < 0 ? 'rgba(231, 76, 60, 0.7)' : v < 10 ? 'rgba(243, 156, 18, 0.7)' : 'rgba(39, 174, 96, 0.7)'
+                ),
+                borderColor: chartData.avgProfitMargins.map(v =>
+                    v < 0 ? '#e74c3c' : v < 10 ? '#f39c12' : '#27ae60'
+                ),
+                borderWidth: 1,
+            },
+            {
+                label: '损耗率(%)',
+                data: chartData.lossRates,
+                backgroundColor: 'rgba(155, 89, 182, 0.7)',
+                borderColor: '#9b59b6',
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '各来源利润率与损耗率对比' }
+        },
+        scales: {
+            y: { beginAtZero: true }
+        }
+    }
+});
+
+new Chart(document.getElementById('benefitScoreChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: chartData.sources,
+        datasets: [{
+            label: '效益评分',
+            data: chartData.benefitScores,
+            backgroundColor: chartData.benefitScores.map(v =>
+                v >= 80 ? 'rgba(39, 174, 96, 0.7)' : v >= 60 ? 'rgba(52, 152, 219, 0.7)' : v >= 40 ? 'rgba(243, 156, 18, 0.7)' : 'rgba(231, 76, 60, 0.7)'
+            ),
+            borderColor: chartData.benefitScores.map(v =>
+                v >= 80 ? '#27ae60' : v >= 60 ? '#3498db' : v >= 40 ? '#f39c12' : '#e74c3c'
+            ),
+            borderWidth: 1,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '来源效益评分排名' }
+        },
+        scales: {
+            x: { beginAtZero: true, max: 100 }
+        }
+    }
+});
+
+new Chart(document.getElementById('qualityChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: chartData.sources,
+        datasets: [
+            {
+                label: '平均结晶率(%)',
+                data: chartData.avgCrystallizationRates,
+                backgroundColor: 'rgba(26, 188, 156, 0.7)',
+                borderColor: '#1abc9c',
+                borderWidth: 1,
+                yAxisID: 'y',
+            },
+            {
+                label: '平均纯度(%)',
+                data: chartData.avgCrystallizationPurities,
+                type: 'line',
+                borderColor: '#9b59b6',
+                backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y',
+            },
+            {
+                label: '异常次数',
+                data: chartData.abnormalCounts,
+                type: 'line',
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                fill: false,
+                borderDash: [5, 5],
+                yAxisID: 'y1',
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '结晶率、纯度与异常关联' }
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                position: 'left',
+                beginAtZero: true,
+                title: { display: true, text: '百分比(%)' },
+                max: 100,
+            },
+            y1: {
+                type: 'linear',
+                position: 'right',
+                beginAtZero: true,
+                title: { display: true, text: '异常次数' },
+                grid: { drawOnChartArea: false },
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('costBreakdownChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: chartData.sources,
+        datasets: [
+            {
+                label: '原料成本',
+                data: chartData.avgMaterialCosts,
+                backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                borderColor: '#667eea',
+                borderWidth: 1,
+            },
+            {
+                label: '能耗成本',
+                data: chartData.avgEnergyCosts,
+                backgroundColor: 'rgba(243, 156, 18, 0.7)',
+                borderColor: '#f39c12',
+                borderWidth: 1,
+            },
+            {
+                label: '人工成本',
+                data: chartData.avgLaborCosts,
+                backgroundColor: 'rgba(39, 174, 96, 0.7)',
+                borderColor: '#27ae60',
+                borderWidth: 1,
+            },
+            {
+                label: '其他费用',
+                data: chartData.avgOtherCosts,
+                backgroundColor: 'rgba(155, 89, 182, 0.7)',
+                borderColor: '#9b59b6',
+                borderWidth: 1,
+            },
+            {
+                label: '损耗费用',
+                data: chartData.avgLossCosts,
+                backgroundColor: 'rgba(230, 126, 34, 0.7)',
+                borderColor: '#e67e22',
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '各来源成本结构对比' },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ¥' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        },
+        scales: {
+            x: { stacked: true },
+            y: {
+                stacked: true,
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) { return '¥' + value; }
+                }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

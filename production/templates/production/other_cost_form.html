@@ -1,0 +1,77 @@
+{% extends 'production/base.html' %}
+
+{% block title %}添加其他费用 - {{ batch.batch_no }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📋 添加其他费用 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+        <p><strong>批次信息：</strong></p>
+        <p>原料来源：{{ batch.material_source }} | 原料重量：{{ batch.material_weight }}kg</p>
+    </div>
+
+    <form method="post" action="{% url 'production:other_cost_create' batch.pk %}">
+        {% csrf_token %}
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>费用类别 *</label>
+                <select name="cost_category" required>
+                    <option value="">请选择费用类别</option>
+                    {% for value, label in cost_category_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>费用名称 *</label>
+                <input type="text" name="cost_name" required placeholder="请输入费用名称">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>金额(元) *</label>
+                <input type="number" name="amount" step="0.01" required placeholder="请输入金额">
+            </div>
+            <div class="form-group">
+                <label>数量</label>
+                <input type="number" name="quantity" step="0.01" value="1" placeholder="数量">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>单价(元)</label>
+                <input type="number" name="unit_price" step="0.01" value="0" placeholder="请输入单价">
+            </div>
+            <div class="form-group">
+                <label>费用日期</label>
+                <input type="date" name="cost_date">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>记录人员 *</label>
+                <input type="text" name="operator" required placeholder="请输入记录人员姓名">
+            </div>
+            <div class="form-group">
+                <label>发票编号</label>
+                <input type="text" name="invoice_no" placeholder="请输入发票编号">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remark" rows="3" placeholder="请输入备注信息"></textarea>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">保存费用记录</button>
+            <a href="{% url 'production:batch_cost_detail' batch.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

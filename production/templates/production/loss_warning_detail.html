@@ -1,0 +1,152 @@
+{% extends 'production/base.html' %}
+
+{% block title %}亏损预警详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 亏损预警详情</h2>
+
+<div class="card">
+    <div class="card-title">基本信息</div>
+    <div class="info-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="info-item">
+            <div class="label">批次编号</div>
+            <div class="value"><a href="{% url 'production:batch_detail' pk=warning.batch.pk %}">{{ warning.batch.batch_no }}</a></div>
+        </div>
+        <div class="info-item">
+            <div class="label">预警级别</div>
+            <div class="value">
+                {% if warning.warning_level == 'severe' %}
+                <span class="badge badge-danger">{{ warning.get_warning_level_display }}</span>
+                {% elif warning.warning_level == 'moderate' %}
+                <span class="badge badge-warning">{{ warning.get_warning_level_display }}</span>
+                {% else %}
+                <span class="badge badge-info">{{ warning.get_warning_level_display }}</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">预警状态</div>
+            <div class="value">
+                {% if warning.warning_status == 'active' %}
+                <span class="badge badge-danger">{{ warning.get_warning_status_display }}</span>
+                {% elif warning.warning_status == 'acknowledged' %}
+                <span class="badge badge-warning">{{ warning.get_warning_status_display }}</span>
+                {% else %}
+                <span class="badge badge-success">{{ warning.get_warning_status_display }}</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">预警标题</div>
+            <div class="value">{{ warning.warning_title }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">预警类型</div>
+            <div class="value">{{ warning.warning_type }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">触发时间</div>
+            <div class="value">{{ warning.triggered_at|date:"Y-m-d H:i:s" }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">预警详情</div>
+    <p>{{ warning.warning_message }}</p>
+    <div class="info-grid" style="grid-template-columns: repeat(2, 1fr); margin-top: 15px;">
+        <div class="info-item">
+            <div class="label">指标数值(亏损金额)</div>
+            <div class="value" style="color: #e74c3c; font-weight: 600;">{{ warning.indicator_value|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">预警阈值</div>
+            <div class="value">{{ warning.threshold|floatformat:2 }}</div>
+        </div>
+    </div>
+</div>
+
+{% if warning.cost_summary %}
+<div class="card">
+    <div class="card-title">关联成本汇总</div>
+    <div class="info-grid" style="grid-template-columns: repeat(4, 1fr);">
+        <div class="info-item">
+            <div class="label">原料成本</div>
+            <div class="value">{{ warning.cost_summary.material_cost|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">能耗成本</div>
+            <div class="value">{{ warning.cost_summary.energy_cost|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">人工成本</div>
+            <div class="value">{{ warning.cost_summary.labor_cost|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">其他费用</div>
+            <div class="value">{{ warning.cost_summary.other_cost|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">总成本</div>
+            <div class="value">{{ warning.cost_summary.total_cost|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">收入</div>
+            <div class="value">{{ warning.cost_summary.revenue|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">利润</div>
+            <div class="value" style="color: #e74c3c;">{{ warning.cost_summary.profit|floatformat:2 }} 元</div>
+        </div>
+        <div class="info-item">
+            <div class="label">利润率</div>
+            <div class="value" style="color: #e74c3c;">{{ warning.cost_summary.profit_margin|floatformat:2 }}%</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if warning.warning_status in 'active,acknowledged' %}
+<div class="card">
+    <div class="card-title">处理预警</div>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-row">
+            <div class="form-group">
+                <label>处理人</label>
+                <input type="text" name="handler" placeholder="请输入处理人姓名">
+            </div>
+            <div class="form-group">
+                <label>处理备注</label>
+                <textarea name="handle_notes" rows="3" placeholder="请输入处理备注"></textarea>
+            </div>
+        </div>
+        <div style="margin-top: 15px; display: flex; gap: 10px;">
+            {% if warning.warning_status == 'active' %}
+            <button type="submit" name="action" value="acknowledge" class="btn btn-warning">确认预警</button>
+            {% endif %}
+            <button type="submit" name="action" value="resolve" class="btn btn-success">标记解决</button>
+            <button type="submit" name="action" value="close" class="btn btn-primary">关闭预警</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+{% if warning.handle_notes %}
+<div class="card">
+    <div class="card-title">处理记录</div>
+    <p>{{ warning.handle_notes }}</p>
+    {% if warning.acknowledged_at %}
+    <p style="color: #7f8c8d; font-size: 13px;">确认人: {{ warning.acknowledged_by }} | 确认时间: {{ warning.acknowledged_at|date:"Y-m-d H:i" }}</p>
+    {% endif %}
+    {% if warning.resolved_at %}
+    <p style="color: #7f8c8d; font-size: 13px;">处理人: {{ warning.resolved_by }} | 解决时间: {{ warning.resolved_at|date:"Y-m-d H:i" }}</p>
+    {% endif %}
+</div>
+{% endif %}
+
+<div style="margin-top: 20px;">
+    <a href="{% url 'production:loss_warning_list' %}" class="btn btn-primary">← 返回预警列表</a>
+    <a href="{% url 'production:batch_cost_detail' pk=warning.batch.pk %}" class="btn btn-success">查看批次成本</a>
+</div>
+{% endblock %}

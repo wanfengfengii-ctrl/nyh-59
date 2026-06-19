@@ -1,0 +1,123 @@
+{% extends 'production/base.html' %}
+
+{% block title %}其他费用 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📋 其他费用</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>批次</label>
+        <select id="batchFilter">
+            <option value="">全部批次</option>
+            {% for batch in batches %}
+            <option value="{{ batch.pk }}" {% if batch_filter == batch.pk|stringformat:"i" %}selected{% endif %}>{{ batch.batch_no }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>费用类别</label>
+        <select id="categoryFilter">
+            <option value="">全部类别</option>
+            {% for value, label in cost_category_choices %}
+            <option value="{{ value }}" {% if category_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>开始日期</label>
+        <input type="date" id="startDate" value="{{ start_date|default:'' }}">
+    </div>
+    <div class="form-group">
+        <label>结束日期</label>
+        <input type="date" id="endDate" value="{{ end_date|default:'' }}">
+    </div>
+    <button class="btn btn-primary" onclick="filterCosts()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_count }}</div>
+        <div class="stat-label">总记录数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_amount|floatformat:2 }}</div>
+        <div class="stat-label">总金额(元)</div>
+    </div>
+</div>
+
+{% if category_stats %}
+<div class="card">
+    <h3 class="card-title">按类别统计</h3>
+    <div class="info-grid" style="grid-template-columns: repeat({% widthratio category_stats|length 1 1 %}, 1fr);">
+        {% for cat in category_stats %}
+        <div class="info-item">
+            <div class="label">{{ cat.category_name }}</div>
+            <div class="value">{{ cat.total_amount|floatformat:2 }} 元</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>费用类别</th>
+                <th>费用名称</th>
+                <th>金额(元)</th>
+                <th>数量</th>
+                <th>单价(元)</th>
+                <th>费用日期</th>
+                <th>操作人</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for cost in costs %}
+            <tr>
+                <td><strong>{{ cost.batch.batch_no }}</strong></td>
+                <td>{{ cost.get_cost_category_display }}</td>
+                <td>{{ cost.cost_name }}</td>
+                <td style="font-weight: 600;">{{ cost.amount|floatformat:2 }}</td>
+                <td>{{ cost.quantity|floatformat:2 }}</td>
+                <td>{{ cost.unit_price|floatformat:2 }}</td>
+                <td>{{ cost.cost_date|date:"Y-m-d" }}</td>
+                <td>{{ cost.operator|default:"-" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: #999; padding: 30px;">
+                    暂无其他费用记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterCosts() {
+    const batch = document.getElementById('batchFilter').value;
+    const category = document.getElementById('categoryFilter').value;
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+
+    let url = '{% url "production:other_cost_list" %}?';
+    if (batch) url += 'batch=' + encodeURIComponent(batch) + '&';
+    if (category) url += 'category=' + encodeURIComponent(category) + '&';
+    if (start) url += 'start_date=' + encodeURIComponent(start) + '&';
+    if (end) url += 'end_date=' + encodeURIComponent(end);
+
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:other_cost_list" %}';
+}
+</script>
+{% endblock %}

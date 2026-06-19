@@ -1,0 +1,436 @@
+{% extends 'production/base.html' %}
+
+{% block title %}成本对比 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📊 成本对比</h2>
+
+<div class="card">
+    <h3 class="card-title">选择对比批次</h3>
+    <form method="get">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+            {% for batch in batches %}
+            <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: #f8f9fa; border-radius: 4px; cursor: pointer;">
+                <input type="checkbox" name="batches" value="{{ batch.pk }}"
+                    {% if batch.pk in selected_batches %}checked{% endif %}>
+                {{ batch.batch_no }} ({{ batch.material_source }})
+            </label>
+            {% endfor %}
+        </div>
+        <button type="submit" class="btn btn-primary">开始对比</button>
+        <button type="reset" class="btn btn-warning" onclick="window.location.href='{% url "production:cost_comparison" %}'">重置</button>
+    </form>
+</div>
+
+{% if comparison_data %}
+<div class="card">
+    <h3 class="card-title">成本明细对比</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>原料成本</th>
+                <th>能耗成本</th>
+                <th>人工成本</th>
+                <th>其他成本</th>
+                <th>损耗费用</th>
+                <th>总成本</th>
+                <th>单位成本</th>
+                <th>利润率</th>
+                <th>结晶率</th>
+                <th>纯度</th>
+                <th>异常次数</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for data in comparison_data %}
+            <tr>
+                <td><strong>{{ data.batch.batch_no }}</strong></td>
+                <td>{{ data.cost_summary.material_cost|floatformat:2 }}</td>
+                <td>{{ data.cost_summary.energy_cost|floatformat:2 }}</td>
+                <td>{{ data.cost_summary.labor_cost|floatformat:2 }}</td>
+                <td>{{ data.cost_summary.other_cost|floatformat:2 }}</td>
+                <td>{{ data.cost_summary.loss_cost|floatformat:2 }}</td>
+                <td style="font-weight: 600;">{{ data.cost_summary.total_cost|floatformat:2 }}</td>
+                <td>¥{{ data.cost_summary.unit_cost|floatformat:2 }}/kg</td>
+                <td>
+                    {% if data.cost_summary %}
+                    {% if data.cost_summary.profit_margin < 0 %}
+                    <span class="badge badge-danger">{{ data.cost_summary.profit_margin|floatformat:1 }}%</span>
+                    {% elif data.cost_summary.profit_margin < 10 %}
+                    <span class="badge badge-warning">{{ data.cost_summary.profit_margin|floatformat:1 }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ data.cost_summary.profit_margin|floatformat:1 }}%</span>
+                    {% endif %}
+                    {% endif %}
+                </td>
+                <td>
+                    {% if data.rate < 15 %}
+                    <span class="badge badge-danger">{{ data.rate|floatformat:1 }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ data.rate|floatformat:1 }}%</span>
+                    {% endif %}
+                </td>
+                <td>{{ data.purity|floatformat:1 }}%</td>
+                <td>
+                    {% if data.abnormal_count > 0 %}
+                    <span class="badge badge-danger">{{ data.abnormal_count }}</span>
+                    {% else %}
+                    <span class="badge badge-success">0</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">成本构成堆叠对比</h3>
+        <div class="chart-container">
+            <canvas id="costBreakdownChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">成本与收入利润对比</h3>
+        <div class="chart-container">
+            <canvas id="costRevenueChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">结晶率与纯度对比</h3>
+        <div class="chart-container">
+            <canvas id="qualityChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">单位成本与利润率对比</h3>
+        <div class="chart-container">
+            <canvas id="unitCostMarginChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">结晶率与成本关联分析</h3>
+    <div class="chart-container">
+        <canvas id="rateCostChart"></canvas>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if comparison_data %}
+<script>
+const labels = {{ chart_data.labels|safe }};
+const materialCosts = {{ chart_data.material_costs|safe }};
+const energyCosts = {{ chart_data.energy_costs|safe }};
+const laborCosts = {{ chart_data.labor_costs|safe }};
+const otherCosts = {{ chart_data.other_costs|safe }};
+const lossCosts = {{ chart_data.loss_costs|safe }};
+const totalCosts = {{ chart_data.total_costs|safe }};
+const unitCosts = {{ chart_data.unit_costs|safe }};
+const revenues = {{ chart_data.revenues|safe }};
+const profits = {{ chart_data.profits|safe }};
+const profitMargins = {{ chart_data.profit_margins|safe }};
+const rates = {{ chart_data.rates|safe }};
+const purities = {{ chart_data.purities|safe }};
+const abnormalCounts = {{ chart_data.abnormal_counts|safe }};
+
+new Chart(document.getElementById('costBreakdownChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: '原料成本',
+                data: materialCosts,
+                backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                borderColor: '#667eea',
+                borderWidth: 1,
+            },
+            {
+                label: '能耗成本',
+                data: energyCosts,
+                backgroundColor: 'rgba(243, 156, 18, 0.7)',
+                borderColor: '#f39c12',
+                borderWidth: 1,
+            },
+            {
+                label: '人工成本',
+                data: laborCosts,
+                backgroundColor: 'rgba(39, 174, 96, 0.7)',
+                borderColor: '#27ae60',
+                borderWidth: 1,
+            },
+            {
+                label: '其他成本',
+                data: otherCosts,
+                backgroundColor: 'rgba(155, 89, 182, 0.7)',
+                borderColor: '#9b59b6',
+                borderWidth: 1,
+            },
+            {
+                label: '损耗费用',
+                data: lossCosts,
+                backgroundColor: 'rgba(230, 126, 34, 0.7)',
+                borderColor: '#e67e22',
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '成本构成堆叠对比' },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ¥' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        },
+        scales: {
+            x: { stacked: true },
+            y: {
+                stacked: true,
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) { return '¥' + value; }
+                }
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('costRevenueChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: '总成本',
+                data: totalCosts,
+                backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                borderColor: '#e74c3c',
+                borderWidth: 1,
+            },
+            {
+                label: '收入',
+                data: revenues,
+                backgroundColor: 'rgba(39, 174, 96, 0.7)',
+                borderColor: '#27ae60',
+                borderWidth: 1,
+            },
+            {
+                label: '利润',
+                data: profits,
+                backgroundColor: profits.map(v => v >= 0 ? 'rgba(102, 126, 234, 0.7)' : 'rgba(231, 76, 60, 0.4)'),
+                borderColor: profits.map(v => v >= 0 ? '#667eea' : '#c0392b'),
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '成本与收入利润对比' },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ¥' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) { return '¥' + value; }
+                }
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('qualityChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: '结晶率(%)',
+                data: rates,
+                backgroundColor: 'rgba(26, 188, 156, 0.7)',
+                borderColor: '#1abc9c',
+                borderWidth: 1,
+                yAxisID: 'y',
+            },
+            {
+                label: '纯度(%)',
+                data: purities,
+                type: 'line',
+                borderColor: '#9b59b6',
+                backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y',
+            },
+            {
+                label: '异常次数',
+                data: abnormalCounts,
+                type: 'line',
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                fill: false,
+                borderDash: [5, 5],
+                yAxisID: 'y1',
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '结晶率、纯度与异常关联' },
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                position: 'left',
+                beginAtZero: true,
+                title: { display: true, text: '百分比(%)' },
+                max: 100,
+            },
+            y1: {
+                type: 'linear',
+                position: 'right',
+                beginAtZero: true,
+                title: { display: true, text: '异常次数' },
+                grid: { drawOnChartArea: false },
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('unitCostMarginChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: '单位成本(元/kg)',
+                data: unitCosts,
+                backgroundColor: 'rgba(230, 126, 34, 0.7)',
+                borderColor: '#e67e22',
+                borderWidth: 1,
+                yAxisID: 'y',
+            },
+            {
+                label: '利润率(%)',
+                data: profitMargins,
+                type: 'line',
+                borderColor: profitMargins.map(v => v >= 0 ? '#27ae60' : '#e74c3c'),
+                backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y1',
+                pointBackgroundColor: profitMargins.map(v => v >= 0 ? '#27ae60' : '#e74c3c'),
+                pointRadius: 6,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '单位成本与利润率关联' },
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                position: 'left',
+                beginAtZero: true,
+                title: { display: true, text: '单位成本(元/kg)' },
+                ticks: {
+                    callback: function(value) { return '¥' + value; }
+                }
+            },
+            y1: {
+                type: 'linear',
+                position: 'right',
+                title: { display: true, text: '利润率(%)' },
+                grid: { drawOnChartArea: false },
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('rateCostChart').getContext('2d'), {
+    type: 'scatter',
+    data: {
+        datasets: [{
+            label: '结晶率 vs 总成本',
+            data: rates.map((r, i) => ({ x: r, y: totalCosts[i] })),
+            backgroundColor: 'rgba(102, 126, 234, 0.6)',
+            borderColor: '#667eea',
+            pointRadius: 8,
+            pointHoverRadius: 12,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { position: 'top' },
+            title: { display: true, text: '结晶率与总成本散点关联' },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return '结晶率: ' + context.parsed.x.toFixed(1) + '%, 总成本: ¥' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                title: { display: true, text: '结晶率(%)' },
+                beginAtZero: true,
+            },
+            y: {
+                title: { display: true, text: '总成本(元)' },
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) { return '¥' + value; }
+                }
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}
