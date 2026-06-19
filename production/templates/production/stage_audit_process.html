@@ -1,0 +1,251 @@
+{% extends 'production/base.html' %}
+
+{% block title %}审核处理 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">✅ 审核处理 - {{ audit.audit_no }}</h2>
+
+<div class="card">
+    <h3 class="card-title">📋 审核基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">审核编号</div>
+            <div class="value">{{ audit.audit_no }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">审核状态</div>
+            <div class="value">
+                {% if audit.audit_status == 'pending' %}
+                <span class="badge badge-warning">待审核</span>
+                {% elif audit.audit_status == 'approved' %}
+                <span class="badge badge-success">已通过</span>
+                {% else %}
+                <span class="badge badge-danger">已驳回</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">申请阶段</div>
+            <div class="value">{{ audit.get_stage_type_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">关联批次</div>
+            <div class="value">
+                <a href="{% url 'production:batch_detail' audit.batch.pk %}">{{ audit.batch.batch_no }}</a>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">申请人</div>
+            <div class="value">{{ audit.applicant }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">申请时间</div>
+            <div class="value">{{ audit.apply_time|date:"Y-m-d H:i:s" }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📝 申请说明</h3>
+    <div style="padding: 15px; background: #f8f9fa; border-radius: 6px; min-height: 80px;">
+        {{ audit.apply_reason|default:"无申请说明" }}
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📊 阶段检测数据</h3>
+    {% if stage_inspections %}
+    <table>
+        <thead>
+            <tr>
+                <th>检测日期</th>
+                <th>温度(°C)</th>
+                <th>浓度(%)</th>
+                <th>pH值</th>
+                <th>检测人员</th>
+                <th>备注</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for insp in stage_inspections %}
+            <tr>
+                <td>{{ insp.inspection_date }}</td>
+                <td>
+                    {% if insp.temperature < 80 or insp.temperature > 100 %}
+                    <span style="color: #e74c3c; font-weight: 600;">{{ insp.temperature }}</span>
+                    {% else %}
+                    <span style="color: #27ae60;">{{ insp.temperature }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if insp.concentration < 15 %}
+                    <span style="color: #e74c3c; font-weight: 600;">{{ insp.concentration }}%</span>
+                    {% else %}
+                    <span style="color: #27ae60;">{{ insp.concentration }}%</span>
+                    {% endif %}
+                </td>
+                <td>{{ insp.ph_value|default:"-" }}</td>
+                <td>{{ insp.operator }}</td>
+                <td>{{ insp.remarks|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 20px;">暂无检测数据</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📈 温度与浓度趋势</h3>
+    <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+    </div>
+</div>
+
+{% if audit.audit_status == 'pending' %}
+<div class="card">
+    <h3 class="card-title">✍️ 审核处理</h3>
+    <form method="post" id="auditForm">
+        {% csrf_token %}
+        <div class="form-group">
+            <label>审核意见 *</label>
+            <textarea name="audit_opinion" rows="4" required placeholder="请输入审核意见..." style="width: 100%;"></textarea>
+        </div>
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <div class="form-group" style="margin-bottom: 0; min-width: 200px;">
+                <label>审核人 *</label>
+                <input type="text" name="auditor" required placeholder="请输入审核人姓名">
+            </div>
+        </div>
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button type="submit" name="action" value="approve" class="btn btn-success" onclick="return confirm('确定通过此审核吗？')">
+                ✅ 通过审核
+            </button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger" onclick="return confirm('确定驳回此审核吗？')">
+                ❌ 驳回申请
+            </button>
+            <a href="{% url 'production:stage_audit_list' %}" class="btn btn-warning">返回列表</a>
+        </div>
+    </form>
+</div>
+{% else %}
+<div class="card">
+    <h3 class="card-title">📋 审核结果</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">审核人</div>
+            <div class="value">{{ audit.auditor }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">审核时间</div>
+            <div class="value">{{ audit.audit_time|date:"Y-m-d H:i:s" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">审核结果</div>
+            <div class="value">
+                {% if audit.audit_status == 'approved' %}
+                <span class="badge badge-success">已通过</span>
+                {% else %}
+                <span class="badge badge-danger">已驳回</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div style="margin-top: 15px;">
+        <strong>审核意见：</strong>
+        <div style="margin-top: 10px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+            {{ audit.audit_opinion }}
+        </div>
+    </div>
+    <div style="margin-top: 20px;">
+        <a href="{% url 'production:stage_audit_list' %}" class="btn btn-primary">← 返回审核列表</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+{% if stage_inspections %}
+const ctx = document.getElementById('trendChart').getContext('2d');
+
+const inspections = [
+    {% for insp in stage_inspections|dictsort:"inspection_date" %}
+    {
+        date: '{{ insp.inspection_date|date:"Y-m-d" }}',
+        temp: {{ insp.temperature }},
+        conc: {{ insp.concentration }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+];
+
+const labels = inspections.map(i => i.date);
+const tempData = inspections.map(i => i.temp);
+const concData = inspections.map(i => i.conc);
+
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: '温度 (°C)',
+                data: tempData,
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y',
+                fill: true
+            },
+            {
+                label: '浓度 (%)',
+                data: concData,
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y1',
+                fill: true
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                title: {
+                    display: true,
+                    text: '温度 (°C)'
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: '浓度 (%)'
+                },
+                grid: {
+                    drawOnChartArea: false,
+                },
+            },
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

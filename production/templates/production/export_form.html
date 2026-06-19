@@ -1,0 +1,273 @@
+{% extends 'production/base.html' %}
+
+{% block title %}新建导出任务 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📥 新建导出任务</h2>
+
+<div class="card">
+    <form method="post" id="exportForm" onsubmit="return validateForm()">
+        {% csrf_token %}
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>报表类型 *</label>
+                <select name="export_type" id="exportType" required onchange="updateReportName()">
+                    <option value="">请选择报表类型</option>
+                    {% for value, label in export_type_choices %}
+                    <option value="{{ value }}" {% if export_type == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>导出格式 *</label>
+                <select name="export_format" id="exportFormat" required>
+                    <option value="">请选择导出格式</option>
+                    <option value="excel" {% if export_format == 'excel' %}selected{% endif %}>📊 Excel (.xlsx)</option>
+                    <option value="pdf" {% if export_format == 'pdf' %}selected{% endif %}>📕 PDF (.pdf)</option>
+                    <option value="csv" {% if export_format == 'csv' %}selected{% endif %}>📄 CSV (.csv)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>报表名称 *</label>
+            <input type="text" name="report_name" id="reportName" required 
+                   placeholder="请输入报表名称" value="{{ report_name }}">
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>开始日期</label>
+                <input type="date" name="start_date" id="startDate" value="{{ start_date }}">
+            </div>
+            <div class="form-group">
+                <label>结束日期</label>
+                <input type="date" name="end_date" id="endDate" value="{{ end_date }}">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>原料来源</label>
+                <select name="material_source" id="materialSource">
+                    <option value="">全部来源</option>
+                    {% for source in sources %}
+                    <option value="{{ source }}" {% if material_source == source %}selected{% endif %}>{{ source }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>工序阶段</label>
+                <select name="stage_type" id="stageType">
+                    <option value="">全部阶段</option>
+                    {% for value, label in stage_choices %}
+                    <option value="{{ value }}" {% if stage_type == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>申请人 *</label>
+                <input type="text" name="applicant" id="applicant" required 
+                       placeholder="请输入申请人姓名" value="{{ applicant }}">
+            </div>
+            <div class="form-group">
+                <label>部门</label>
+                <input type="text" name="department" placeholder="请输入部门名称" value="{{ department }}">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>导出内容选项</label>
+            <div style="padding: 15px; background: #f8f9fa; border-radius: 6px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="include_basic" checked> 包含基本信息
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="include_inspection" checked> 包含检测数据
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="include_crystallization" checked> 包含结晶数据
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="include_abnormal" checked> 包含异常记录
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="include_alert"> 包含预警记录
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="include_charts"> 包含图表
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>备注说明</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注说明">{{ remarks }}</textarea>
+        </div>
+
+        <div id="validationErrors" class="alert alert-error" style="display: none;"></div>
+
+        <div class="card" style="margin-top: 20px; background: #f8f9fa;">
+            <h3 class="card-title">📋 导出预览</h3>
+            <div class="info-grid">
+                <div class="info-item">
+                    <div class="label">预估数据量</div>
+                    <div class="value" id="estimatedCount">- 条</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">预估文件大小</div>
+                    <div class="value" id="estimatedSize">-</div>
+                </div>
+                <div class="info-item">
+                    <div class="label">预计生成时间</div>
+                    <div class="value" id="estimatedTime">-</div>
+                </div>
+            </div>
+            <p style="margin-top: 15px; color: #7f8c8d; font-size: 13px;">
+                * 以上数据为预估，实际以生成结果为准
+            </p>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button type="submit" class="btn btn-primary" onclick="this.disabled=true; this.innerHTML='提交中...'">
+                ✅ 提交导出任务
+            </button>
+            <a href="{% url 'production:export_list' %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const reportNames = {
+    'batch': '批次数据报表',
+    'inspection': '检测数据报表',
+    'quality': '质量分析报表',
+    'abnormal': '异常处理报表',
+    'alert': '预警统计报表',
+    'process': '工艺流程报表',
+    'comprehensive': '综合数据分析报表'
+};
+
+function updateReportName() {
+    const type = document.getElementById('exportType').value;
+    const nameInput = document.getElementById('reportName');
+    if (type && !nameInput.value) {
+        const today = new Date().toISOString().split('T')[0];
+        nameInput.value = reportNames[type] + '_' + today;
+    }
+    updatePreview();
+}
+
+function validateForm() {
+    const errors = [];
+    const errorDiv = document.getElementById('validationErrors');
+    errorDiv.style.display = 'none';
+    errorDiv.innerHTML = '';
+
+    const exportType = document.getElementById('exportType').value;
+    const exportFormat = document.getElementById('exportFormat').value;
+    const reportName = document.getElementById('reportName').value.trim();
+    const applicant = document.getElementById('applicant').value.trim();
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+
+    if (!exportType) {
+        errors.push('请选择报表类型');
+    }
+
+    if (!exportFormat) {
+        errors.push('请选择导出格式');
+    }
+
+    if (!reportName) {
+        errors.push('请输入报表名称');
+    } else if (reportName.length < 3) {
+        errors.push('报表名称至少3个字符');
+    }
+
+    if (!applicant) {
+        errors.push('请输入申请人姓名');
+    } else if (applicant.length < 2) {
+        errors.push('申请人姓名至少2个字符');
+    }
+
+    if (startDate && endDate && startDate > endDate) {
+        errors.push('开始日期不能晚于结束日期');
+    }
+
+    const hasOption = document.querySelector('input[name="include_basic"]:checked') ||
+                      document.querySelector('input[name="include_inspection"]:checked') ||
+                      document.querySelector('input[name="include_crystallization"]:checked') ||
+                      document.querySelector('input[name="include_abnormal"]:checked');
+    if (!hasOption) {
+        errors.push('请至少选择一个导出内容选项');
+    }
+
+    if (errors.length > 0) {
+        errorDiv.style.display = 'block';
+        errorDiv.innerHTML = '<strong>请修正以下错误：</strong><ul style="margin-top: 10px; padding-left: 20px;">' + 
+            errors.map(e => '<li>' + e + '</li>').join('') + '</ul>';
+        const submitBtn = document.querySelector('button[type="submit"]');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '✅ 提交导出任务';
+        return false;
+    }
+
+    return true;
+}
+
+function updatePreview() {
+    const type = document.getElementById('exportType').value;
+    const format = document.getElementById('exportFormat').value;
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+
+    const countEl = document.getElementById('estimatedCount');
+    const sizeEl = document.getElementById('estimatedSize');
+    const timeEl = document.getElementById('estimatedTime');
+
+    if (!type) {
+        countEl.textContent = '- 条';
+        sizeEl.textContent = '-';
+        timeEl.textContent = '-';
+        return;
+    }
+
+    let baseCount = 100;
+    if (startDate && endDate) {
+        const days = Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24));
+        baseCount = Math.max(10, Math.min(1000, days * 2));
+    }
+
+    let sizeMultiplier = 1;
+    if (format === 'excel') sizeMultiplier = 2;
+    if (format === 'pdf') sizeMultiplier = 3;
+
+    const chartChecked = document.querySelector('input[name="include_charts"]:checked');
+    if (chartChecked) sizeMultiplier *= 1.5;
+
+    const estimatedSize = (baseCount * 0.05 * sizeMultiplier).toFixed(1);
+    const estimatedTime = Math.max(5, Math.min(60, baseCount * 0.1)).toFixed(0);
+
+    countEl.textContent = '约 ' + baseCount + ' 条';
+    sizeEl.textContent = '约 ' + estimatedSize + ' MB';
+    timeEl.textContent = '约 ' + estimatedTime + ' 秒';
+}
+
+document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', updatePreview);
+});
+
+document.getElementById('startDate').addEventListener('change', updatePreview);
+document.getElementById('endDate').addEventListener('change', updatePreview);
+document.getElementById('exportFormat').addEventListener('change', updatePreview);
+</script>
+{% endblock %}

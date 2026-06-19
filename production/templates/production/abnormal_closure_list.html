@@ -1,0 +1,247 @@
+{% extends 'production/base.html' %}
+
+{% block title %}异常闭环管理 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔒 异常闭环管理</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.pending }}</div>
+        <div class="stat-label">待闭环</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.closed }}</div>
+        <div class="stat-label">已闭环</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">异常总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.closure_rate }}%</div>
+        <div class="stat-label">闭环率</div>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 class="card-title" style="margin-bottom: 0;">闭环记录列表</h3>
+    </div>
+
+    <div class="tabs">
+        <div class="tab {% if status_filter == 'pending' or not status_filter %}active{% endif %}" onclick="switchTab('pending')">
+            ⏳ 待闭环 ({{ stats.pending }})
+        </div>
+        <div class="tab {% if status_filter == 'closed' %}active{% endif %}" onclick="switchTab('closed')">
+            ✅ 已闭环 ({{ stats.closed }})
+        </div>
+        <div class="tab {% if status_filter == 'all' %}active{% endif %}" onclick="switchTab('all')">
+            📋 全部 ({{ stats.total }})
+        </div>
+    </div>
+
+    <div class="filter-bar">
+        <div class="form-group">
+            <label>异常类型</label>
+            <select id="typeFilter" onchange="filterData()">
+                <option value="">全部类型</option>
+                {% for value, label in abnormal_type_choices %}
+                <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>发生阶段</label>
+            <select id="stageFilter" onchange="filterData()">
+                <option value="">全部阶段</option>
+                {% for value, label in stage_choices %}
+                <option value="{{ value }}" {% if stage_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>批次编号</label>
+            <input type="text" id="batchFilter" placeholder="输入批次编号" value="{{ batch_filter }}">
+        </div>
+        <button class="btn btn-primary" onclick="filterData()">筛选</button>
+        <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+    </div>
+
+    {% if closures %}
+    <table>
+        <thead>
+            <tr>
+                <th>闭环编号</th>
+                <th>关联异常</th>
+                <th>关联批次</th>
+                <th>异常类型</th>
+                <th>发生阶段</th>
+                <th>发现日期</th>
+                <th>状态</th>
+                <th>闭环日期</th>
+                <th>责任人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for closure in closures %}
+            <tr>
+                <td><strong>{{ closure.closure_no }}</strong></td>
+                <td>
+                    <a href="{% url 'production:abnormal_edit' closure.abnormal.pk %}">{{ closure.abnormal.get_abnormal_type_display }}</a>
+                </td>
+                <td>
+                    <a href="{% url 'production:batch_detail' closure.batch.pk %}">{{ closure.batch.batch_no }}</a>
+                </td>
+                <td>
+                    <span class="badge badge-danger">{{ closure.abnormal.get_abnormal_type_display }}</span>
+                </td>
+                <td>{{ closure.abnormal.get_stage_type_display }}</td>
+                <td>{{ closure.abnormal.discover_date }}</td>
+                <td>
+                    {% if closure.closure_status == 'pending' %}
+                    <span class="badge badge-warning">待闭环</span>
+                    {% elif closure.closure_status == 'verifying' %}
+                    <span class="badge badge-info">验证中</span>
+                    {% else %}
+                    <span class="badge badge-success">已闭环</span>
+                    {% endif %}
+                </td>
+                <td>{{ closure.closure_date|date:"Y-m-d"|default:"-" }}</td>
+                <td>{{ closure.responsible_person|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:abnormal_closure_detail' closure.pk %}" class="btn btn-sm btn-primary">详情</a>
+                    {% if closure.closure_status != 'closed' %}
+                    <a href="{% url 'production:abnormal_closure_edit' closure.pk %}" class="btn btn-sm btn-warning">编辑</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 30px;">暂无闭环记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📊 闭环分析</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="chart-container">
+            <canvas id="closureRateChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="typeChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchTab(status) {
+    const type = document.getElementById('typeFilter').value;
+    const stage = document.getElementById('stageFilter').value;
+    const batch = document.getElementById('batchFilter').value;
+    
+    let url = '{% url "production:abnormal_closure_list" %}?status=' + status;
+    if (type) url += '&type=' + encodeURIComponent(type);
+    if (stage) url += '&stage=' + encodeURIComponent(stage);
+    if (batch) url += '&batch=' + encodeURIComponent(batch);
+    
+    window.location.href = url;
+}
+
+function filterData() {
+    const status = getCurrentStatus();
+    switchTab(status);
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:abnormal_closure_list" %}';
+}
+
+function getCurrentStatus() {
+    const tabs = document.querySelectorAll('.tab');
+    for (let i = 0; i < tabs.length; i++) {
+        if (tabs[i].classList.contains('active')) {
+            return ['pending', 'closed', 'all'][i];
+        }
+    }
+    return 'pending';
+}
+
+document.getElementById('batchFilter').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        filterData();
+    }
+});
+
+{% if closure_analysis %}
+new Chart(document.getElementById('closureRateChart'), {
+    type: 'doughnut',
+    data: {
+        labels: ['已闭环', '待闭环', '验证中'],
+        datasets: [{
+            data: [{{ closure_analysis.closed }}, {{ closure_analysis.pending }}, {{ closure_analysis.verifying }}],
+            backgroundColor: ['#27ae60', '#f39c12', '#3498db'],
+            borderWidth: 0
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            },
+            title: {
+                display: true,
+                text: '闭环状态分布'
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if type_analysis %}
+new Chart(document.getElementById('typeChart'), {
+    type: 'bar',
+    data: {
+        labels: {{ type_analysis.labels|safe }},
+        datasets: [{
+            label: '异常数量',
+            data: {{ type_analysis.data|safe }},
+            backgroundColor: [
+                'rgba(231, 76, 60, 0.7)',
+                'rgba(243, 156, 18, 0.7)',
+                'rgba(52, 152, 219, 0.7)',
+                'rgba(155, 89, 182, 0.7)',
+                'rgba(39, 174, 96, 0.7)'
+            ],
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            },
+            title: {
+                display: true,
+                text: '异常类型分布'
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

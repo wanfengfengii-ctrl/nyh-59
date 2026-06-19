@@ -1,0 +1,162 @@
+{% extends 'production/base.html' %}
+
+{% block title %}预警中心 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 预警中心</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">预警总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.danger }}</div>
+        <div class="stat-label">危险预警</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.warning }}</div>
+        <div class="stat-label">警告预警</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.active }}</div>
+        <div class="stat-label">待处理预警</div>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 class="card-title" style="margin-bottom: 0;">预警列表</h3>
+        <div>
+            <button onclick="runAlertCheck()" class="btn btn-primary">🔄 运行预警检测</button>
+            <a href="{% url 'production:alert_rules' %}" class="btn btn-info">⚙️ 预警规则</a>
+        </div>
+    </div>
+    
+    <div class="filter-bar">
+        <div class="form-group">
+            <label>预警级别</label>
+            <select onchange="window.location.href=this.value">
+                <option value="{% url 'production:alert_center' %}">全部</option>
+                {% for value, label in alert_level_choices %}
+                <option value="?level={{ value }}" {% if level_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>预警状态</label>
+            <select onchange="window.location.href=this.value">
+                <option value="{% url 'production:alert_center' %}">全部</option>
+                {% for value, label in alert_status_choices %}
+                <option value="?status={{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>预警类型</label>
+            <select onchange="window.location.href=this.value">
+                <option value="{% url 'production:alert_center' %}">全部</option>
+                {% for value, label in alert_type_choices %}
+                <option value="?type={{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    {% if alerts %}
+    <table>
+        <thead>
+            <tr>
+                <th>级别</th>
+                <th>类型</th>
+                <th>标题</th>
+                <th>关联批次</th>
+                <th>当前值</th>
+                <th>阈值</th>
+                <th>状态</th>
+                <th>触发时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+            <tr>
+                <td>
+                    {% if alert.alert_level == 'danger' %}
+                    <span class="badge badge-danger">危险</span>
+                    {% elif alert.alert_level == 'warning' %}
+                    <span class="badge badge-warning">警告</span>
+                    {% else %}
+                    <span class="badge badge-info">提示</span>
+                    {% endif %}
+                </td>
+                <td>{{ alert.get_alert_type_display }}</td>
+                <td>{{ alert.alert_title }}</td>
+                <td>
+                    {% if alert.batch %}
+                    <a href="{% url 'production:batch_detail' alert.batch.pk %}">{{ alert.batch.batch_no }}</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{{ alert.indicator_value|default:"-" }}</td>
+                <td>{{ alert.threshold|default:"-" }}</td>
+                <td>
+                    {% if alert.alert_status == 'active' %}
+                    <span class="badge badge-danger">未处理</span>
+                    {% elif alert.alert_status == 'acknowledged' %}
+                    <span class="badge badge-warning">已确认</span>
+                    {% elif alert.alert_status == 'resolved' %}
+                    <span class="badge badge-success">已解决</span>
+                    {% else %}
+                    <span class="badge badge-info">已关闭</span>
+                    {% endif %}
+                </td>
+                <td>{{ alert.triggered_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <a href="{% url 'production:alert_detail' alert.pk %}" class="btn btn-sm btn-primary">查看</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 30px;">暂无预警数据</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function runAlertCheck() {
+    if (!confirm('确定要运行全量预警检测吗？')) return;
+    
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '检测中...';
+    
+    fetch("{% url 'production:run_alert_check' %}", {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`预警检测完成！\n新增预警: ${data.new_alerts} 条\n总预警数: ${data.total_alerts} 条`);
+            window.location.reload();
+        } else {
+            alert('检测失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('检测失败: ' + error);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '🔄 运行预警检测';
+    });
+}
+</script>
+{% endblock %}

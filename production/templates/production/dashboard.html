@@ -24,6 +24,41 @@
     </div>
 </div>
 
+{% if pending_alerts > 0 or pending_audits > 0 or unclosed_abnormals > 0 %}
+<div class="card" style="background: linear-gradient(135deg, #fff5f5 0%, #fff0f0 100%); border-left: 4px solid #e74c3c;">
+    <h3 class="card-title" style="color: #e74c3c;">⚠️ 待处理事项提醒</h3>
+    <div style="display: flex; gap: 30px; flex-wrap: wrap;">
+        {% if pending_alerts > 0 %}
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">🚨</span>
+            <div>
+                <div style="font-weight: bold; color: #e74c3c;">{{ pending_alerts }} 条预警待处理</div>
+                <a href="{% url 'production:alert_center' %}" style="font-size: 13px; color: #667eea;">立即处理 →</a>
+            </div>
+        </div>
+        {% endif %}
+        {% if pending_audits > 0 %}
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">✅</span>
+            <div>
+                <div style="font-weight: bold; color: #f39c12;">{{ pending_audits }} 个审核待处理</div>
+                <a href="{% url 'production:stage_audit_list' %}" style="font-size: 13px; color: #667eea;">立即处理 →</a>
+            </div>
+        </div>
+        {% endif %}
+        {% if unclosed_abnormals > 0 %}
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 24px;">🔒</span>
+            <div>
+                <div style="font-weight: bold; color: #8e44ad;">{{ unclosed_abnormals }} 个异常待闭环</div>
+                <a href="{% url 'production:abnormal_closure_list' %}" style="font-size: 13px; color: #667eea;">立即处理 →</a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
     <div class="card">
         <h3 class="card-title">📦 最近批次</h3>
@@ -59,6 +94,60 @@
         </div>
     </div>
 
+    <div class="card">
+        <h3 class="card-title">🚨 最近预警</h3>
+        {% if recent_alerts %}
+        <table>
+            <thead>
+                <tr>
+                    <th>级别</th>
+                    <th>标题</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for alert in recent_alerts %}
+                <tr>
+                    <td>
+                        {% if alert.alert_level == 'danger' %}
+                        <span class="badge badge-danger">危险</span>
+                        {% elif alert.alert_level == 'warning' %}
+                        <span class="badge badge-warning">警告</span>
+                        {% else %}
+                        <span class="badge badge-info">提示</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ alert.alert_title }}</td>
+                    <td>
+                        {% if alert.alert_status == 'active' %}
+                        <span class="badge badge-danger">未处理</span>
+                        {% elif alert.alert_status == 'acknowledged' %}
+                        <span class="badge badge-warning">已确认</span>
+                        {% elif alert.alert_status == 'resolved' %}
+                        <span class="badge badge-success">已解决</span>
+                        {% else %}
+                        <span class="badge badge-info">已关闭</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'production:alert_detail' alert.pk %}" class="btn btn-sm btn-primary">处理</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999;">暂无预警记录</p>
+        {% endif %}
+        <div style="margin-top: 15px;">
+            <a href="{% url 'production:alert_center' %}" class="btn btn-primary">预警中心</a>
+            <button onclick="runAlertCheckQuick()" class="btn btn-warning">🔄 检测预警</button>
+        </div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
     <div class="card">
         <h3 class="card-title">⚠️ 最近异常</h3>
         {% if recent_abnormal %}
@@ -101,37 +190,99 @@
             <a href="{% url 'production:abnormal_list' %}" class="btn btn-primary">查看全部异常</a>
         </div>
     </div>
+
+    <div class="card">
+        <h3 class="card-title">🔬 最近检测记录</h3>
+        {% if recent_inspections %}
+        <table>
+            <thead>
+                <tr>
+                    <th>批次编号</th>
+                    <th>工序阶段</th>
+                    <th>温度(°C)</th>
+                    <th>浓度(%)</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inspection in recent_inspections %}
+                <tr>
+                    <td>{{ inspection.batch.batch_no }}</td>
+                    <td>{{ inspection.get_stage_type_display }}</td>
+                    <td>{{ inspection.temperature }}</td>
+                    <td>{{ inspection.concentration }}</td>
+                    <td>
+                        <a href="{% url 'production:batch_detail' inspection.batch.pk %}" class="btn btn-sm btn-primary">查看</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999;">暂无检测记录</p>
+        {% endif %}
+        <div style="margin-top: 15px;">
+            <a href="{% url 'production:inspection_list' %}" class="btn btn-primary">查看全部检测</a>
+        </div>
+    </div>
 </div>
 
 <div class="card">
-    <h3 class="card-title">🔬 最近检测记录</h3>
-    {% if recent_inspections %}
-    <table>
-        <thead>
-            <tr>
-                <th>批次编号</th>
-                <th>工序阶段</th>
-                <th>检测日期</th>
-                <th>温度(°C)</th>
-                <th>浓度(%)</th>
-                <th>检测人员</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for inspection in recent_inspections %}
-            <tr>
-                <td>{{ inspection.batch.batch_no }}</td>
-                <td>{{ inspection.get_stage_type_display }}</td>
-                <td>{{ inspection.inspection_date }}</td>
-                <td>{{ inspection.temperature }}</td>
-                <td>{{ inspection.concentration }}</td>
-                <td>{{ inspection.operator }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p style="color: #999;">暂无检测记录</p>
-    {% endif %}
+    <h3 class="card-title">🖥️ 快捷功能入口</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px;">
+        <a href="{% url 'production:visual_dashboard' %}" class="btn btn-primary" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📊</div>
+            <div>可视化大屏</div>
+        </a>
+        <a href="{% url 'production:material_quality_analysis' %}" class="btn btn-success" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📈</div>
+            <div>质量分析</div>
+        </a>
+        <a href="{% url 'production:parameter_recommendation' %}" class="btn btn-warning" style="text-align: center; padding: 20px;">
+            <div style="font-size: 24px; margin-bottom: 5px;">💡</div>
+            <div>参数推荐</div>
+        </a>
+        <a href="{% url 'production:export_create' %}" class="btn btn-info" style="text-align: center; padding: 20px; background: #17a2b8; border-color: #17a2b8;">
+            <div style="font-size: 24px; margin-bottom: 5px;">📥</div>
+            <div>报表导出</div>
+        </a>
+    </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function runAlertCheckQuick() {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '检测中...';
+    
+    fetch("{% url 'production:run_alert_check' %}", {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.new_alerts > 0) {
+                alert(`预警检测完成！\n新增预警: ${data.new_alerts} 条\n总预警数: ${data.total_alerts} 条`);
+            } else {
+                alert('预警检测完成，未发现新的预警。');
+            }
+            window.location.reload();
+        } else {
+            alert('检测失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('检测失败: ' + error);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '🔄 检测预警';
+    });
+}
+</script>
 {% endblock %}

@@ -1,0 +1,272 @@
+{% extends 'production/base.html' %}
+
+{% block title %}异常闭环详情 - {{ closure.closure_no }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔒 异常闭环详情 - {{ closure.closure_no }}</h2>
+
+<div class="card">
+    <h3 class="card-title">📋 基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">闭环编号</div>
+            <div class="value">{{ closure.closure_no }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">闭环状态</div>
+            <div class="value">
+                {% if closure.closure_status == 'pending' %}
+                <span class="badge badge-warning">待闭环</span>
+                {% elif closure.closure_status == 'verifying' %}
+                <span class="badge badge-info">验证中</span>
+                {% else %}
+                <span class="badge badge-success">已闭环</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">关联批次</div>
+            <div class="value">
+                <a href="{% url 'production:batch_detail' closure.batch.pk %}">{{ closure.batch.batch_no }}</a>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">异常类型</div>
+            <div class="value">
+                <span class="badge badge-danger">{{ closure.abnormal.get_abnormal_type_display }}</span>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">发生阶段</div>
+            <div class="value">{{ closure.abnormal.get_stage_type_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">发现日期</div>
+            <div class="value">{{ closure.abnormal.discover_date }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">⚠️ 异常信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">异常描述</div>
+            <div class="value">{{ closure.abnormal.description }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">异常原因</div>
+            <div class="value">{{ closure.abnormal.reason }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">处置措施</div>
+            <div class="value">{{ closure.abnormal.disposal_measure|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">处理人员</div>
+            <div class="value">{{ closure.abnormal.handler|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">解决日期</div>
+            <div class="value">{{ closure.abnormal.resolve_date|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">异常状态</div>
+            <div class="value">
+                {% if closure.abnormal.disposal_status == 'pending' %}
+                <span class="badge badge-danger">待处理</span>
+                {% elif closure.abnormal.disposal_status == 'processing' %}
+                <span class="badge badge-warning">处理中</span>
+                {% elif closure.abnormal.disposal_status == 'resolved' %}
+                <span class="badge badge-success">已解决</span>
+                {% else %}
+                <span class="badge badge-info">已关闭</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔍 闭环处理信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">责任人</div>
+            <div class="value">{{ closure.responsible_person }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">责任部门</div>
+            <div class="value">{{ closure.department|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">计划完成日期</div>
+            <div class="value">
+                {% if closure.plan_date %}
+                    {% if closure.plan_date < today and closure.closure_status != 'closed' %}
+                    <span style="color: #e74c3c; font-weight: 600;">{{ closure.plan_date }} (已逾期)</span>
+                    {% else %}
+                    {{ closure.plan_date }}
+                    {% endif %}
+                {% else %}
+                -
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">实际完成日期</div>
+            <div class="value">{{ closure.actual_date|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">验证人</div>
+            <div class="value">{{ closure.verifier|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">验证日期</div>
+            <div class="value">{{ closure.verify_date|default:"-" }}</div>
+        </div>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <h4 style="color: #2c3e50; margin-bottom: 10px;">原因分析</h4>
+        <div style="padding: 15px; background: #f8f9fa; border-radius: 6px;">
+            {{ closure.cause_analysis }}
+        </div>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <h4 style="color: #2c3e50; margin-bottom: 10px;">纠正措施</h4>
+        <div style="padding: 15px; background: #d4edda; border-radius: 6px; color: #155724;">
+            {{ closure.correction_action }}
+        </div>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <h4 style="color: #2c3e50; margin-bottom: 10px;">预防措施</h4>
+        <div style="padding: 15px; background: #d1ecf1; border-radius: 6px; color: #0c5460;">
+            {{ closure.preventive_action }}
+        </div>
+    </div>
+
+    {% if closure.verify_result %}
+    <div style="margin-top: 20px;">
+        <h4 style="color: #2c3e50; margin-bottom: 10px;">验证结果</h4>
+        <div style="padding: 15px; background: #fff3cd; border-radius: 6px; color: #856404;">
+            {{ closure.verify_result }}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if closure.remarks %}
+    <div style="margin-top: 20px;">
+        <h4 style="color: #2c3e50; margin-bottom: 10px;">备注</h4>
+        <div style="padding: 15px; background: #f8f9fa; border-radius: 6px;">
+            {{ closure.remarks }}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">⏰ 处理时间线</h3>
+    <div class="timeline">
+        <div class="timeline-item completed">
+            <div class="timeline-title">异常发现</div>
+            <div class="timeline-time">{{ closure.abnormal.discover_date|date:"Y-m-d" }}</div>
+            <div class="timeline-content">
+                <p><strong>异常类型：</strong>{{ closure.abnormal.get_abnormal_type_display }}</p>
+                <p><strong>发现人：</strong>{{ closure.abnormal.handler|default:"系统自动检测" }}</p>
+            </div>
+        </div>
+        <div class="timeline-item completed">
+            <div class="timeline-title">创建闭环记录</div>
+            <div class="timeline-time">{{ closure.created_at|date:"Y-m-d H:i" }}</div>
+            <div class="timeline-content">
+                <p><strong>责任人：</strong>{{ closure.responsible_person }}</p>
+                <p><strong>计划完成：</strong>{{ closure.plan_date|date:"Y-m-d" }}</p>
+            </div>
+        </div>
+        {% if closure.actual_date %}
+        <div class="timeline-item completed">
+            <div class="timeline-title">措施完成</div>
+            <div class="timeline-time">{{ closure.actual_date|date:"Y-m-d" }}</div>
+            <div class="timeline-content">
+                <p>纠正和预防措施已完成</p>
+            </div>
+        </div>
+        {% endif %}
+        {% if closure.verify_date %}
+        <div class="timeline-item completed">
+            <div class="timeline-title">效果验证</div>
+            <div class="timeline-time">{{ closure.verify_date|date:"Y-m-d" }}</div>
+            <div class="timeline-content">
+                <p><strong>验证人：</strong>{{ closure.verifier }}</p>
+                {% if closure.verify_result %}
+                <p>{{ closure.verify_result }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        {% if closure.closure_status == 'closed' %}
+        <div class="timeline-item completed">
+            <div class="timeline-title">闭环完成</div>
+            <div class="timeline-time">{{ closure.closure_date|date:"Y-m-d H:i" }}</div>
+            <div class="timeline-content">
+                <p style="color: #27ae60; font-weight: 600;">异常已成功闭环</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if closure.closure_status != 'closed' %}
+<div class="card">
+    <h3 class="card-title">✍️ 处理操作</h3>
+    <form method="post">
+        {% csrf_token %}
+        {% if closure.closure_status == 'pending' %}
+        <div class="form-group">
+            <label>实际完成日期</label>
+            <input type="date" name="actual_date" value="{% if closure.actual_date %}{{ closure.actual_date|date:'Y-m-d' }}{% endif %}">
+        </div>
+        <div class="form-group">
+            <label>验证人</label>
+            <input type="text" name="verifier" placeholder="请输入验证人姓名" value="{{ closure.verifier }}">
+        </div>
+        <div class="form-group">
+            <label>验证结果</label>
+            <textarea name="verify_result" rows="3" placeholder="请描述验证结果">{{ closure.verify_result }}</textarea>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" name="action" value="submit_verify" class="btn btn-info" onclick="return confirm('确定提交验证吗？")">
+                📋 提交验证
+            </button>
+            <button type="submit" name="action" value="direct_close" class="btn btn-success" onclick="return confirm('确定直接闭环吗？')">
+                ✅ 直接闭环
+            </button>
+        </div>
+        {% elif closure.closure_status == 'verifying' %}
+        <div class="form-group">
+            <label>验证意见</label>
+            <textarea name="verify_result" rows="3" required placeholder="请输入验证意见">{{ closure.verify_result }}</textarea>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button type="submit" name="action" value="pass" class="btn btn-success" onclick="return confirm('验证通过，确定闭环吗？')">
+                ✅ 验证通过，完成闭环
+            </button>
+            <button type="submit" name="action" value="reject" class="btn btn-danger" onclick="return confirm('验证不通过，需要重新整改吗？')">
+                ❌ 验证不通过
+            </button>
+        </div>
+        {% endif %}
+    </form>
+</div>
+{% endif %}
+
+<div style="margin-top: 20px; display: flex; gap: 10px;">
+    <a href="{% url 'production:abnormal_closure_list' %}" class="btn btn-primary">← 返回列表</a>
+    {% if closure.closure_status != 'closed' %}
+    <a href="{% url 'production:abnormal_closure_edit' closure.pk %}" class="btn btn-warning">✏️ 编辑</a>
+    {% endif %}
+    <a href="{% url 'production:abnormal_edit' closure.abnormal.pk %}" class="btn btn-info">查看异常详情</a>
+</div>
+{% endblock %}

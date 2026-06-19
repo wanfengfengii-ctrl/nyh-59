@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}土法炼硝批次监测系统{% endblock %}</title>
+    <title>{% block title %}智能预警与工艺优化平台{% endblock %}</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
@@ -439,17 +439,28 @@
 </head>
 <body>
     <div class="header">
-        <h1>🏭 传统土法炼硝批次监测系统</h1>
+        <h1>🏭 智能预警与工艺优化平台</h1>
     </div>
     
     <div class="container">
         <div class="sidebar">
             <ul>
                 <li><a href="{% url 'production:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">📊 数据概览</a></li>
+                <li><a href="{% url 'production:visual_dashboard' %}" class="{% if request.resolver_match.url_name == 'visual_dashboard' %}active{% endif %}">🖥️ 可视化大屏</a></li>
                 <li><a href="{% url 'production:batch_list' %}" class="{% if 'batch' in request.resolver_match.url_name and 'comparison' not in request.resolver_match.url_name %}active{% endif %}">📦 原料批次</a></li>
                 <li><a href="{% url 'production:inspection_list' %}" class="{% if 'inspection' in request.resolver_match.url_name %}active{% endif %}">🔬 检测记录</a></li>
-                <li><a href="{% url 'production:abnormal_list' %}" class="{% if 'abnormal' in request.resolver_match.url_name %}active{% endif %}">⚠️ 异常处置</a></li>
+                <li><a href="{% url 'production:abnormal_list' %}" class="{% if 'abnormal' in request.resolver_match.url_name and 'closure' not in request.resolver_match.url_name %}active{% endif %}">⚠️ 异常处置</a></li>
                 <li><a href="{% url 'production:batch_comparison' %}" class="{% if 'comparison' in request.resolver_match.url_name %}active{% endif %}">📈 批次对比</a></li>
+                <li style="border-top: 1px solid #34495e; margin-top: 10px; padding-top: 10px;">
+                    <strong style="color: #667eea; padding: 0 25px; display: block; margin-bottom: 5px;">新增功能</strong>
+                </li>
+                <li><a href="{% url 'production:alert_center' %}" class="{% if 'alert' in request.resolver_match.url_name and 'rule' not in request.resolver_match.url_name %}active{% endif %}">🚨 预警中心</a></li>
+                <li><a href="{% url 'production:alert_rules' %}" class="{% if 'alert_rules' in request.resolver_match.url_name %}active{% endif %}">⚙️ 预警规则</a></li>
+                <li><a href="{% url 'production:stage_audit_list' %}" class="{% if 'audit' in request.resolver_match.url_name %}active{% endif %}">✅ 阶段审核</a></li>
+                <li><a href="{% url 'production:material_quality_analysis' %}" class="{% if 'quality_analysis' in request.resolver_match.url_name %}active{% endif %}">📊 质量分析</a></li>
+                <li><a href="{% url 'production:parameter_recommendation' %}" class="{% if 'parameter' in request.resolver_match.url_name %}active{% endif %}">💡 参数推荐</a></li>
+                <li><a href="{% url 'production:abnormal_closure_list' %}" class="{% if 'closure' in request.resolver_match.url_name %}active{% endif %}">🔒 异常闭环</a></li>
+                <li><a href="{% url 'production:export_list' %}" class="{% if 'export' in request.resolver_match.url_name %}active{% endif %}">📥 报表导出</a></li>
                 <li><a href="/admin/" target="_blank">🔧 管理后台</a></li>
             </ul>
         </div>

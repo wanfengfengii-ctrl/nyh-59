@@ -1,0 +1,420 @@
+{% extends 'production/base.html' %}
+
+{% block title %}历史参数推荐 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">💡 历史参数推荐</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_batches }}</div>
+        <div class="stat-label">分析批次</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.sources }}</div>
+        <div class="stat-label">原料来源</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.stages }}</div>
+        <div class="stat-label">工序阶段</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.avg_quality }}%</div>
+        <div class="stat-label">平均质量达标率</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料来源</label>
+        <select id="sourceFilter" onchange="filterData()">
+            <option value="">全部来源</option>
+            {% for source in sources %}
+            <option value="{{ source }}" {% if source_filter == source %}selected{% endif %}>{{ source }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>工序阶段</label>
+        <select id="stageFilter" onchange="filterData()">
+            <option value="">全部阶段</option>
+            {% for value, label in stage_choices %}
+            <option value="{{ value }}" {% if stage_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📊 各阶段参数推荐汇总</h3>
+    {% if recommendations %}
+    <table>
+        <thead>
+            <tr>
+                <th>原料来源</th>
+                <th>工序阶段</th>
+                <th>推荐温度(°C)</th>
+                <th>推荐浓度(%)</th>
+                <th>推荐pH值</th>
+                <th>参考批次</th>
+                <th>平均结晶率</th>
+                <th>置信度</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rec in recommendations %}
+            <tr>
+                <td><strong>{{ rec.source }}</strong></td>
+                <td>
+                    <span class="badge badge-info">{{ rec.stage }}</span>
+                </td>
+                <td>
+                    <span style="color: #e74c3c; font-weight: 600;">{{ rec.recommended_temp }}°C</span>
+                    <div style="font-size: 12px; color: #999;">
+                        范围: {{ rec.temp_min }} - {{ rec.temp_max }}°C
+                    </div>
+                </td>
+                <td>
+                    <span style="color: #3498db; font-weight: 600;">{{ rec.recommended_conc }}%</span>
+                    <div style="font-size: 12px; color: #999;">
+                        范围: {{ rec.conc_min }} - {{ rec.conc_max }}%
+                    </div>
+                </td>
+                <td>
+                    <span style="color: #9b59b6; font-weight: 600;">{{ rec.recommended_ph }}</span>
+                    <div style="font-size: 12px; color: #999;">
+                        范围: {{ rec.ph_min }} - {{ rec.ph_max }}
+                    </div>
+                </td>
+                <td>{{ rec.batch_count }} 批</td>
+                <td>
+                    {% if rec.avg_crystallization >= 20 %}
+                    <span class="badge badge-success">{{ rec.avg_crystallization }}%</span>
+                    {% elif rec.avg_crystallization >= 15 %}
+                    <span class="badge badge-warning">{{ rec.avg_crystallization }}%</span>
+                    {% else %}
+                    <span class="badge badge-danger">{{ rec.avg_crystallization }}%</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if rec.confidence >= 90 %}
+                    <span class="badge badge-success">{{ rec.confidence }}%</span>
+                    {% elif rec.confidence >= 70 %}
+                    <span class="badge badge-warning">{{ rec.confidence }}%</span>
+                    {% else %}
+                    <span class="badge badge-danger">{{ rec.confidence }}%</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 30px;">暂无参数推荐数据</p>
+    {% endif %}
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">🌡️ 温度参数对比</h3>
+        <div class="chart-container">
+            <canvas id="tempChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">💧 浓度参数对比</h3>
+        <div class="chart-container">
+            <canvas id="concChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">⚗️ pH值参数对比</h3>
+        <div class="chart-container">
+            <canvas id="phChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📋 详细参数分析</h3>
+    <div class="tabs">
+        <div class="tab active" onclick="switchDetailTab('temp')">🌡️ 温度分析</div>
+        <div class="tab" onclick="switchDetailTab('conc')">💧 浓度分析</div>
+        <div class="tab" onclick="switchDetailTab('ph')">⚗️ pH值分析</div>
+    </div>
+
+    <div id="tempTab" class="tab-content active">
+        {% if temp_details %}
+        <table>
+            <thead>
+                <tr>
+                    <th>原料来源</th>
+                    <th>阶段</th>
+                    <th>最高温</th>
+                    <th>最低温</th>
+                    <th>平均温</th>
+                    <th>最优温</th>
+                    <th>标准差</th>
+                    <th>最佳效果批次</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for detail in temp_details %}
+                <tr>
+                    <td><strong>{{ detail.source }}</strong></td>
+                    <td>{{ detail.stage }}</td>
+                    <td style="color: #e74c3c;">{{ detail.max_temp }}°C</td>
+                    <td style="color: #3498db;">{{ detail.min_temp }}°C</td>
+                    <td style="color: #f39c12;">{{ detail.avg_temp }}°C</td>
+                    <td style="color: #27ae60; font-weight: 600;">{{ detail.best_temp }}°C</td>
+                    <td>{{ detail.std_dev|floatformat:2 }}</td>
+                    <td>
+                        <a href="{% url 'production:batch_detail' detail.best_batch.pk %}">{{ detail.best_batch.batch_no }}</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+
+    <div id="concTab" class="tab-content">
+        {% if conc_details %}
+        <table>
+            <thead>
+                <tr>
+                    <th>原料来源</th>
+                    <th>阶段</th>
+                    <th>最高浓度</th>
+                    <th>最低浓度</th>
+                    <th>平均浓度</th>
+                    <th>最优浓度</th>
+                    <th>标准差</th>
+                    <th>最佳效果批次</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for detail in conc_details %}
+                <tr>
+                    <td><strong>{{ detail.source }}</strong></td>
+                    <td>{{ detail.stage }}</td>
+                    <td style="color: #e74c3c;">{{ detail.max_conc }}%</td>
+                    <td style="color: #3498db;">{{ detail.min_conc }}%</td>
+                    <td style="color: #f39c12;">{{ detail.avg_conc }}%</td>
+                    <td style="color: #27ae60; font-weight: 600;">{{ detail.best_conc }}%</td>
+                    <td>{{ detail.std_dev|floatformat:2 }}</td>
+                    <td>
+                        <a href="{% url 'production:batch_detail' detail.best_batch.pk %}">{{ detail.best_batch.batch_no }}</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+
+    <div id="phTab" class="tab-content">
+        {% if ph_details %}
+        <table>
+            <thead>
+                <tr>
+                    <th>原料来源</th>
+                    <th>阶段</th>
+                    <th>最高pH</th>
+                    <th>最低pH</th>
+                    <th>平均pH</th>
+                    <th>最优pH</th>
+                    <th>标准差</th>
+                    <th>最佳效果批次</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for detail in ph_details %}
+                <tr>
+                    <td><strong>{{ detail.source }}</strong></td>
+                    <td>{{ detail.stage }}</td>
+                    <td style="color: #e74c3c;">{{ detail.max_ph }}</td>
+                    <td style="color: #3498db;">{{ detail.min_ph }}</td>
+                    <td style="color: #f39c12;">{{ detail.avg_ph }}</td>
+                    <td style="color: #27ae60; font-weight: 600;">{{ detail.best_ph }}</td>
+                    <td>{{ detail.std_dev|floatformat:2 }}</td>
+                    <td>
+                        <a href="{% url 'production:batch_detail' detail.best_batch.pk %}">{{ detail.best_batch.batch_no }}</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">💡 参数使用建议</h3>
+    <div style="padding: 20px; background: #f8f9fa; border-radius: 8px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+                <h4 style="color: #2c3e50; margin-bottom: 10px;">🌡️ 温度控制建议</h4>
+                <ul style="padding-left: 20px; line-height: 2;">
+                    <li>溶解阶段建议温度控制在 <strong style="color: #e74c3c;">80-100°C</strong></li>
+                    <li>过滤阶段建议温度控制在 <strong style="color: #e74c3c;">60-80°C</strong></li>
+                    <li>蒸发阶段建议温度控制在 <strong style="color: #e74c3c;">90-110°C</strong></li>
+                    <li>结晶阶段建议温度控制在 <strong style="color: #e74c3c;">20-30°C</strong></li>
+                </ul>
+            </div>
+            <div>
+                <h4 style="color: #2c3e50; margin-bottom: 10px;">💧 浓度控制建议</h4>
+                <ul style="padding-left: 20px; line-height: 2;">
+                    <li>溶解阶段建议浓度控制在 <strong style="color: #3498db;">15-25%</strong></li>
+                    <li>过滤阶段建议浓度控制在 <strong style="color: #3498db;">18-28%</strong></li>
+                    <li>蒸发阶段建议浓度控制在 <strong style="color: #3498db;">30-45%</strong></li>
+                    <li>整体目标浓度需达到 <strong style="color: #27ae60;">≥15%</strong> 以保证结晶率</li>
+                </ul>
+            </div>
+        </div>
+        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+            <h4 style="color: #2c3e50; margin-bottom: 10px;">⚗️ pH值控制建议</h4>
+            <p style="line-height: 2;">
+                整个生产过程中，pH值建议控制在 <strong style="color: #9b59b6;">6.5-8.5</strong> 范围内。
+                pH值过高或过低都会影响结晶效果和产品纯度。
+                当pH值超出范围时，应及时添加酸碱调节剂进行调整。
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterData() {
+    const source = document.getElementById('sourceFilter').value;
+    const stage = document.getElementById('stageFilter').value;
+    
+    let url = '{% url "production:parameter_recommendation" %}?';
+    if (source) url += 'source=' + encodeURIComponent(source) + '&';
+    if (stage) url += 'stage=' + encodeURIComponent(stage);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:parameter_recommendation" %}';
+}
+
+function switchDetailTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    
+    event.target.classList.add('active');
+    document.getElementById(tab + 'Tab').classList.add('active');
+}
+
+{% if chart_data %}
+const labels = {{ chart_data.labels|safe }};
+const tempData = {{ chart_data.temps|safe }};
+const concData = {{ chart_data.concs|safe }};
+const phData = {{ chart_data.phs|safe }};
+
+new Chart(document.getElementById('tempChart'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: '推荐温度 (°C)',
+            data: tempData,
+            backgroundColor: 'rgba(231, 76, 60, 0.7)',
+            borderColor: '#e74c3c',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: '温度 (°C)'
+                }
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('concChart'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: '推荐浓度 (%)',
+            data: concData,
+            backgroundColor: 'rgba(52, 152, 219, 0.7)',
+            borderColor: '#3498db',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 50,
+                title: {
+                    display: true,
+                    text: '浓度 (%)'
+                }
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('phChart'), {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [{
+            label: '推荐pH值',
+            data: phData,
+            backgroundColor: 'rgba(155, 89, 182, 0.7)',
+            borderColor: '#9b59b6',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 14,
+                title: {
+                    display: true,
+                    text: 'pH值'
+                }
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

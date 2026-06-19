@@ -1,0 +1,302 @@
+{% extends 'production/base.html' %}
+
+{% block title %}报表导出 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📥 报表导出</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">导出记录</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.completed }}</div>
+        <div class="stat-label">已完成</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.pending }}</div>
+        <div class="stat-label">待生成</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.today }}</div>
+        <div class="stat-label">今日导出</div>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 class="card-title" style="margin-bottom: 0;">导出记录列表</h3>
+        <a href="{% url 'production:export_create' %}" class="btn btn-success">➕ 新建导出任务</a>
+    </div>
+
+    <div class="filter-bar">
+        <div class="form-group">
+            <label>报表类型</label>
+            <select id="typeFilter" onchange="filterData()">
+                <option value="">全部类型</option>
+                {% for value, label in export_type_choices %}
+                <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>导出状态</label>
+            <select id="statusFilter" onchange="filterData()">
+                <option value="">全部状态</option>
+                <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>待生成</option>
+                <option value="processing" {% if status_filter == 'processing' %}selected{% endif %}>生成中</option>
+                <option value="completed" {% if status_filter == 'completed' %}selected{% endif %}>已完成</option>
+                <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>失败</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>导出格式</label>
+            <select id="formatFilter" onchange="filterData()">
+                <option value="">全部格式</option>
+                <option value="excel" {% if format_filter == 'excel' %}selected{% endif %}>Excel</option>
+                <option value="pdf" {% if format_filter == 'pdf' %}selected{% endif %}>PDF</option>
+                <option value="csv" {% if format_filter == 'csv' %}selected{% endif %}>CSV</option>
+            </select>
+        </div>
+        <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+    </div>
+
+    {% if exports %}
+    <table>
+        <thead>
+            <tr>
+                <th>任务编号</th>
+                <th>报表类型</th>
+                <th>报表名称</th>
+                <th>导出格式</th>
+                <th>时间范围</th>
+                <th>申请人</th>
+                <th>申请时间</th>
+                <th>状态</th>
+                <th>文件大小</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for export in exports %}
+            <tr>
+                <td><strong>{{ export.export_no }}</strong></td>
+                <td>
+                    <span class="badge badge-info">{{ export.get_export_type_display }}</span>
+                </td>
+                <td>{{ export.report_name }}</td>
+                <td>
+                    {% if export.export_format == 'excel' %}
+                    <span style="color: #27ae60;">📊 Excel</span>
+                    {% elif export.export_format == 'pdf' %}
+                    <span style="color: #e74c3c;">📕 PDF</span>
+                    {% else %}
+                    <span style="color: #3498db;">📄 CSV</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if export.start_date and export.end_date %}
+                    {{ export.start_date }} ~ {{ export.end_date }}
+                    {% else %}
+                    全部
+                    {% endif %}
+                </td>
+                <td>{{ export.applicant }}</td>
+                <td>{{ export.created_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    {% if export.export_status == 'pending' %}
+                    <span class="badge badge-warning">待生成</span>
+                    {% elif export.export_status == 'processing' %}
+                    <span class="badge badge-info">生成中</span>
+                    {% elif export.export_status == 'completed' %}
+                    <span class="badge badge-success">已完成</span>
+                    {% else %}
+                    <span class="badge badge-danger">失败</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if export.file_size %}
+                        {{ export.file_size|filesizeformat }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>
+                    {% if export.export_status == 'completed' and export.file_path %}
+                    <a href="{{ export.file_path }}" class="btn btn-sm btn-success" download>下载</a>
+                    {% elif export.export_status == 'pending' %}
+                    <button class="btn btn-sm btn-primary" onclick="generateExport({{ export.pk }})">生成</button>
+                    {% elif export.export_status == 'failed' %}
+                    <button class="btn btn-sm btn-warning" onclick="retryExport({{ export.pk }})">重试</button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-danger" onclick="deleteExport({{ export.pk }})">删除</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 30px;">暂无导出记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📊 导出统计</h3>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="chart-container">
+            <canvas id="typeChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="monthlyChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterData() {
+    const type = document.getElementById('typeFilter').value;
+    const status = document.getElementById('statusFilter').value;
+    const format = document.getElementById('formatFilter').value;
+    
+    let url = '{% url "production:export_list" %}?';
+    if (type) url += 'type=' + encodeURIComponent(type) + '&';
+    if (status) url += 'status=' + encodeURIComponent(status) + '&';
+    if (format) url += 'format=' + encodeURIComponent(format);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:export_list" %}';
+}
+
+function generateExport(exportId) {
+    if (!confirm('确定要生成此报表吗？')) return;
+    
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '生成中...';
+    
+    fetch(`/production/export/${exportId}/generate/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('报表生成任务已提交，请稍后刷新查看');
+            setTimeout(() => window.location.reload(), 2000);
+        } else {
+            alert('生成失败: ' + data.error);
+            btn.disabled = false;
+            btn.innerHTML = '生成';
+        }
+    })
+    .catch(error => {
+        alert('生成失败: ' + error);
+        btn.disabled = false;
+        btn.innerHTML = '生成';
+    });
+}
+
+function retryExport(exportId) {
+    generateExport(exportId);
+}
+
+function deleteExport(exportId) {
+    if (!confirm('确定要删除此导出记录吗？此操作不可恢复。')) return;
+    
+    fetch(`/production/export/${exportId}/delete/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('删除成功');
+            window.location.reload();
+        } else {
+            alert('删除失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('删除失败: ' + error);
+    });
+}
+
+{% if type_stats %}
+new Chart(document.getElementById('typeChart'), {
+    type: 'doughnut',
+    data: {
+        labels: {{ type_stats.labels|safe }},
+        datasets: [{
+            data: {{ type_stats.data|safe }},
+            backgroundColor: [
+                'rgba(102, 126, 234, 0.7)',
+                'rgba(39, 174, 96, 0.7)',
+                'rgba(243, 156, 18, 0.7)',
+                'rgba(231, 76, 60, 0.7)',
+                'rgba(155, 89, 182, 0.7)'
+            ],
+            borderWidth: 0
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom'
+            },
+            title: {
+                display: true,
+                text: '报表类型分布'
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if monthly_stats %}
+new Chart(document.getElementById('monthlyChart'), {
+    type: 'line',
+    data: {
+        labels: {{ monthly_stats.labels|safe }},
+        datasets: [{
+            label: '导出数量',
+            data: {{ monthly_stats.data|safe }},
+            borderColor: '#667eea',
+            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+            tension: 0.3,
+            fill: true
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            },
+            title: {
+                display: true,
+                text: '月度导出趋势'
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

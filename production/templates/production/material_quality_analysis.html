@@ -1,0 +1,436 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料来源质量分析 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📊 原料来源质量分析</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_batches }}</div>
+        <div class="stat-label">分析批次</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.avg_crystallization }}%</div>
+        <div class="stat-label">平均结晶率</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.avg_purity }}%</div>
+        <div class="stat-label">平均纯度</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.abnormal_rate }}%</div>
+        <div class="stat-label">异常率</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料来源</label>
+        <select id="sourceFilter" onchange="filterData()">
+            <option value="">全部来源</option>
+            {% for source in sources %}
+            <option value="{{ source }}" {% if source_filter == source %}selected{% endif %}>{{ source }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>时间范围</label>
+        <select id="timeFilter" onchange="filterData()">
+            <option value="" {% if not time_filter %}selected{% endif %}>全部时间</option>
+            <option value="month" {% if time_filter == 'month' %}selected{% endif %}>近一个月</option>
+            <option value="quarter" {% if time_filter == 'quarter' %}selected{% endif %}>近三个月</option>
+            <option value="year" {% if time_filter == 'year' %}selected{% endif %}>近一年</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label>开始日期</label>
+        <input type="date" id="startDate" value="{{ start_date }}" onchange="filterData()">
+    </div>
+    <div class="form-group">
+        <label>结束日期</label>
+        <input type="date" id="endDate" value="{{ end_date }}" onchange="filterData()">
+    </div>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">📈 各来源结晶率对比</h3>
+        <div class="chart-container">
+            <canvas id="crystallizationChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">🎯 各来源纯度对比</h3>
+        <div class="chart-container">
+            <canvas id="purityChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">⚠️ 各来源异常率对比</h3>
+        <div class="chart-container">
+            <canvas id="abnormalChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">📅 质量趋势变化</h3>
+        <div class="chart-container">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📋 详细数据分析表</h3>
+    {% if stats %}
+    <table>
+        <thead>
+            <tr>
+                <th>原料来源</th>
+                <th>批次数量</th>
+                <th>平均结晶率</th>
+                <th>平均纯度</th>
+                <th>异常次数</th>
+                <th>异常率</th>
+                <th>质量评级</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for data in stats %}
+            <tr>
+                <td><strong>{{ data.material_source }}</strong></td>
+                <td>{{ data.total_batches }}</td>
+                <td>
+                    {% if data.avg_crystallization_rate < 15 %}
+                    <span style="color: #e74c3c; font-weight: 600;">{{ data.avg_crystallization_rate|default:0 }}%</span>
+                    {% elif data.avg_crystallization_rate >= 20 %}
+                    <span style="color: #27ae60; font-weight: 600;">{{ data.avg_crystallization_rate|default:0 }}%</span>
+                    {% else %}
+                    <span style="color: #f39c12;">{{ data.avg_crystallization_rate|default:0 }}%</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if data.avg_crystallization_purity < 90 %}
+                    <span style="color: #e74c3c; font-weight: 600;">{{ data.avg_crystallization_purity|default:0 }}%</span>
+                    {% elif data.avg_crystallization_purity >= 95 %}
+                    <span style="color: #27ae60; font-weight: 600;">{{ data.avg_crystallization_purity|default:0 }}%</span>
+                    {% else %}
+                    <span style="color: #f39c12;">{{ data.avg_crystallization_purity|default:0 }}%</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if data.abnormal_count > 0 %}
+                    <span style="color: #e74c3c; font-weight: 600;">{{ data.abnormal_count }}</span>
+                    {% else %}
+                    <span style="color: #27ae60;">{{ data.abnormal_count }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if data.abnormal_rate > 10 %}
+                    <span class="badge badge-danger">{{ data.abnormal_rate }}%</span>
+                    {% elif data.abnormal_rate > 5 %}
+                    <span class="badge badge-warning">{{ data.abnormal_rate }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ data.abnormal_rate }}%</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if data.quality_level == '优秀' %}
+                    <span class="badge badge-success">优秀</span>
+                    {% elif data.quality_level == '良好' %}
+                    <span class="badge badge-info">良好</span>
+                    {% elif data.quality_level == '一般' %}
+                    <span class="badge badge-warning">一般</span>
+                    {% else %}
+                    <span class="badge badge-danger">较差</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 30px;">暂无质量分析数据</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📦 按批次明细</h3>
+    {% if batch_details %}
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>原料来源</th>
+                <th>批次号</th>
+                <th>结晶率</th>
+                <th>纯度</th>
+                <th>是否异常</th>
+                <th>生产日期</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for batch in batch_details %}
+            <tr>
+                <td>
+                    <a href="{% url 'production:batch_detail' batch.pk %}">{{ batch.batch_no }}</a>
+                </td>
+                <td>{{ batch.material_source }}</td>
+                <td>{{ batch.material_batch|default:"-" }}</td>
+                <td>
+                    {% with rate=batch.get_crystallization_rate %}
+                        {% if rate %}
+                            {% if rate < 15 %}
+                            <span style="color: #e74c3c; font-weight: 600;">{{ rate }}%</span>
+                            {% else %}
+                            <span style="color: #27ae60;">{{ rate }}%</span>
+                            {% endif %}
+                        {% else %}
+                        <span style="color: #999;">-</span>
+                        {% endif %}
+                    {% endwith %}
+                </td>
+                <td>
+                    {% if batch.crystallization.crystal_purity %}
+                        {% if batch.crystallization.crystal_purity < 90 %}
+                        <span style="color: #e74c3c; font-weight: 600;">{{ batch.crystallization.crystal_purity }}%</span>
+                        {% else %}
+                        <span style="color: #27ae60;">{{ batch.crystallization.crystal_purity }}%</span>
+                        {% endif %}
+                    {% else %}
+                    <span style="color: #999;">-</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if batch.has_abnormal %}
+                    <span class="badge badge-danger">有异常</span>
+                    {% else %}
+                    <span class="badge badge-success">正常</span>
+                    {% endif %}
+                </td>
+                <td>{{ batch.start_date }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 30px;">暂无批次数据</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterData() {
+    const source = document.getElementById('sourceFilter').value;
+    const time = document.getElementById('timeFilter').value;
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    
+    let url = '{% url "production:material_quality_analysis" %}?';
+    if (source) url += 'source=' + encodeURIComponent(source) + '&';
+    if (time) url += 'time=' + encodeURIComponent(time) + '&';
+    if (startDate) url += 'start_date=' + encodeURIComponent(startDate) + '&';
+    if (endDate) url += 'end_date=' + encodeURIComponent(endDate);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_quality_analysis" %}';
+}
+
+{% if chart_data %}
+const sourceLabels = {{ chart_data.sources|safe }};
+const crystallizationData = {{ chart_data.rates|safe }};
+const purityData = {{ chart_data.purities|safe }};
+const abnormalData = {{ chart_data.abnormal_rates|safe }};
+
+new Chart(document.getElementById('crystallizationChart'), {
+    type: 'bar',
+    data: {
+        labels: sourceLabels,
+        datasets: [{
+            label: '平均结晶率 (%)',
+            data: crystallizationData,
+            backgroundColor: 'rgba(102, 126, 234, 0.7)',
+            borderColor: '#667eea',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 30,
+                title: {
+                    display: true,
+                    text: '结晶率 (%)'
+                }
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('purityChart'), {
+    type: 'bar',
+    data: {
+        labels: sourceLabels,
+        datasets: [{
+            label: '平均纯度 (%)',
+            data: purityData,
+            backgroundColor: 'rgba(39, 174, 96, 0.7)',
+            borderColor: '#27ae60',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 100,
+                title: {
+                    display: true,
+                    text: '纯度 (%)'
+                }
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    }
+});
+
+new Chart(document.getElementById('abnormalChart'), {
+    type: 'bar',
+    data: {
+        labels: sourceLabels,
+        datasets: [{
+            label: '异常率 (%)',
+            data: abnormalData,
+            backgroundColor: 'rgba(231, 76, 60, 0.7)',
+            borderColor: '#e74c3c',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                max: 30,
+                title: {
+                    display: true,
+                    text: '异常率 (%)'
+                }
+            }
+        },
+        plugins: {
+            legend: {
+                display: false
+            }
+        }
+    }
+});
+{% endif %}
+
+{% if trend_chart_data %}
+const trendLabels = {{ trend_chart_data.labels|safe }};
+const trendCrystallization = {{ trend_chart_data.crystallization|safe }};
+const trendPurity = {{ trend_chart_data.purity|safe }};
+const trendAbnormal = {{ trend_chart_data.abnormal|safe }};
+
+new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+        labels: trendLabels,
+        datasets: [
+            {
+                label: '结晶率 (%)',
+                data: trendCrystallization,
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y',
+                fill: true
+            },
+            {
+                label: '纯度 (%)',
+                data: trendPurity,
+                borderColor: '#27ae60',
+                backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y',
+                fill: true
+            },
+            {
+                label: '异常率 (%)',
+                data: trendAbnormal,
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y1',
+                fill: true
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                min: 0,
+                max: 100,
+                title: {
+                    display: true,
+                    text: '结晶率/纯度 (%)'
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                min: 0,
+                max: 30,
+                title: {
+                    display: true,
+                    text: '异常率 (%)'
+                },
+                grid: {
+                    drawOnChartArea: false,
+                },
+            },
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            }
+        }
+    }
+});
+{% endif %}
+</script>
+{% endblock %}

@@ -1,0 +1,152 @@
+{% extends 'production/base.html' %}
+
+{% block title %}预警详情 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 预警详情</h2>
+
+<div class="card">
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">预警级别</div>
+            <div class="value">
+                {% if alert.alert_level == 'danger' %}
+                <span class="badge badge-danger">危险</span>
+                {% elif alert.alert_level == 'warning' %}
+                <span class="badge badge-warning">警告</span>
+                {% else %}
+                <span class="badge badge-info">提示</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">预警类型</div>
+            <div class="value">{{ alert.get_alert_type_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">预警状态</div>
+            <div class="value">
+                {% if alert.alert_status == 'active' %}
+                <span class="badge badge-danger">未处理</span>
+                {% elif alert.alert_status == 'acknowledged' %}
+                <span class="badge badge-warning">已确认</span>
+                {% elif alert.alert_status == 'resolved' %}
+                <span class="badge badge-success">已解决</span>
+                {% else %}
+                <span class="badge badge-info">已关闭</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">关联批次</div>
+            <div class="value">
+                {% if alert.batch %}
+                <a href="{% url 'production:batch_detail' alert.batch.pk %}">{{ alert.batch.batch_no }}</a>
+                {% else %}
+                -
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">指标数值</div>
+            <div class="value">{{ alert.indicator_value|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">阈值范围</div>
+            <div class="value">{{ alert.threshold|default:"-" }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">预警信息</h3>
+    <div style="margin-bottom: 15px;">
+        <strong>标题：</strong>{{ alert.alert_title }}
+    </div>
+    <div style="margin-bottom: 15px;">
+        <strong>详情：</strong>
+        <p style="margin-top: 5px; padding: 10px; background: #f8f9fa; border-radius: 4px;">{{ alert.alert_message }}</p>
+    </div>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">触发时间</div>
+            <div class="value">{{ alert.triggered_at|date:"Y-m-d H:i:s" }}</div>
+        </div>
+        {% if alert.acknowledged_at %}
+        <div class="info-item">
+            <div class="label">确认时间</div>
+            <div class="value">{{ alert.acknowledged_at|date:"Y-m-d H:i:s" }}</div>
+        </div>
+        {% endif %}
+        {% if alert.resolved_at %}
+        <div class="info-item">
+            <div class="label">解决时间</div>
+            <div class="value">{{ alert.resolved_at|date:"Y-m-d H:i:s" }}</div>
+        </div>
+        {% endif %}
+        {% if alert.closed_at %}
+        <div class="info-item">
+            <div class="label">关闭时间</div>
+            <div class="value">{{ alert.closed_at|date:"Y-m-d H:i:s" }}</div>
+        </div>
+        {% endif %}
+        {% if alert.acknowledged_by %}
+        <div class="info-item">
+            <div class="label">确认人</div>
+            <div class="value">{{ alert.acknowledged_by }}</div>
+        </div>
+        {% endif %}
+        {% if alert.resolved_by %}
+        <div class="info-item">
+            <div class="label">处理人</div>
+            <div class="value">{{ alert.resolved_by }}</div>
+        </div>
+        {% endif %}
+        {% if alert.closed_by %}
+        <div class="info-item">
+            <div class="label">关闭人</div>
+            <div class="value">{{ alert.closed_by }}</div>
+        </div>
+        {% endif %}
+    </div>
+    {% if alert.handle_notes %}
+    <div style="margin-top: 15px;">
+        <strong>处理备注：</strong>
+        <p style="margin-top: 5px; padding: 10px; background: #f8f9fa; border-radius: 4px;">{{ alert.handle_notes }}</p>
+    </div>
+    {% endif %}
+</div>
+
+{% if alert.alert_status in 'active,acknowledged' %}
+<div class="card">
+    <h3 class="card-title">预警处理</h3>
+    <form method="post">
+        {% csrf_token %}
+        <div class="form-group">
+            <label>处理人</label>
+            <input type="text" name="handler" placeholder="请输入处理人姓名" required>
+        </div>
+        <div class="form-group">
+            <label>处理备注</label>
+            <textarea name="handle_notes" rows="3" placeholder="请输入处理说明..."></textarea>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            {% if alert.alert_status == 'active' %}
+            <button type="submit" name="action" value="acknowledge" class="btn btn-warning">✅ 确认预警</button>
+            {% endif %}
+            {% if alert.alert_status in 'active,acknowledged' %}
+            <button type="submit" name="action" value="resolve" class="btn btn-success">🎉 标记解决</button>
+            {% endif %}
+            {% if alert.alert_status in 'active,acknowledged,resolved' %}
+            <button type="submit" name="action" value="close" class="btn btn-primary">🔒 关闭预警</button>
+            {% endif %}
+            <a href="{% url 'production:alert_center' %}" class="btn btn-warning">返回列表</a>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div style="margin-top: 20px;">
+    <a href="{% url 'production:alert_center' %}" class="btn btn-primary">← 返回预警中心</a>
+</div>
+{% endblock %}

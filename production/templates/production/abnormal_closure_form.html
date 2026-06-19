@@ -1,0 +1,220 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{% if editing %}编辑{% else %}创建{% endif %}异常闭环记录 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔒 {% if editing %}编辑{% else %}创建{% endif %}异常闭环记录</h2>
+
+<div class="card">
+    {% if abnormal %}
+    <div style="margin-bottom: 20px; padding: 15px; background: #fff3cd; border-radius: 6px; border-left: 4px solid #f39c12;">
+        <h4 style="color: #856404; margin-bottom: 10px;">⚠️ 关联异常信息</h4>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="label">异常类型</div>
+                <div class="value">{{ abnormal.get_abnormal_type_display }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">发生阶段</div>
+                <div class="value">{{ abnormal.get_stage_type_display }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">发现日期</div>
+                <div class="value">{{ abnormal.discover_date }}</div>
+            </div>
+            <div class="info-item">
+                <div class="label">关联批次</div>
+                <div class="value">
+                    <a href="{% url 'production:batch_detail' abnormal.batch.pk %}">{{ abnormal.batch.batch_no }}</a>
+                </div>
+            </div>
+            <div class="info-item">
+                <div class="label">当前状态</div>
+                <div class="value">
+                    {% if abnormal.disposal_status == 'pending' %}
+                    <span class="badge badge-danger">待处理</span>
+                    {% elif abnormal.disposal_status == 'processing' %}
+                    <span class="badge badge-warning">处理中</span>
+                    {% elif abnormal.disposal_status == 'resolved' %}
+                    <span class="badge badge-success">已解决</span>
+                    {% else %}
+                    <span class="badge badge-info">已关闭</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="info-item">
+                <div class="label">异常描述</div>
+                <div class="value" style="font-size: 14px;">{{ abnormal.description|truncatechars:50 }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <form method="post" id="closureForm" onsubmit="return validateForm()">
+        {% csrf_token %}
+
+        {% if not abnormal %}
+        <div class="form-row">
+            <div class="form-group">
+                <label>关联异常 *</label>
+                <select name="abnormal_id" id="abnormalSelect" required onchange="loadAbnormalInfo()">
+                    <option value="">请选择要闭环的异常</option>
+                    {% for abn in available_abnormals %}
+                    <option value="{{ abn.pk }}" {% if abnormal_id == abn.pk %}selected{% endif %}>
+                        {{ abn.get_abnormal_type_display }} - {{ abn.batch.batch_no }} ({{ abn.discover_date }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>责任人 *</label>
+                <input type="text" name="responsible_person" id="responsiblePerson" required 
+                       placeholder="请输入责任人姓名" value="{{ responsible_person }}">
+            </div>
+            <div class="form-group">
+                <label>责任部门</label>
+                <input type="text" name="department" placeholder="请输入责任部门" value="{{ department }}">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>计划完成日期 *</label>
+                <input type="date" name="plan_date" id="planDate" required value="{{ plan_date|date:'Y-m-d' }}">
+            </div>
+            <div class="form-group">
+                <label>实际完成日期</label>
+                <input type="date" name="actual_date" value="{{ actual_date|date:'Y-m-d' }}">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>异常原因分析 *</label>
+            <textarea name="cause_analysis" id="causeAnalysis" rows="3" required 
+                      placeholder="请详细分析异常产生的根本原因">{{ cause_analysis }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label>纠正措施 *</label>
+            <textarea name="correction_action" id="correctionAction" rows="3" required 
+                      placeholder="请描述针对此次异常采取的纠正措施">{{ correction_action }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label>预防措施 *</label>
+            <textarea name="preventive_action" id="preventiveAction" rows="3" required 
+                      placeholder="请描述防止类似异常再次发生的预防措施">{{ preventive_action }}</textarea>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>验证人</label>
+                <input type="text" name="verifier" placeholder="请输入验证人姓名" value="{{ verifier }}">
+            </div>
+            <div class="form-group">
+                <label>验证日期</label>
+                <input type="date" name="verify_date" value="{{ verify_date|date:'Y-m-d' }}">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>验证结果</label>
+            <textarea name="verify_result" rows="3" 
+                      placeholder="请描述验证结果，确认措施是否有效">{{ verify_result }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label>闭环状态</label>
+            <select name="closure_status">
+                <option value="pending" {% if closure_status == 'pending' %}selected{% endif %}>待闭环</option>
+                <option value="verifying" {% if closure_status == 'verifying' %}selected{% endif %}>验证中</option>
+                <option value="closed" {% if closure_status == 'closed' %}selected{% endif %}>已闭环</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="2" placeholder="请输入其他备注信息">{{ remarks }}</textarea>
+        </div>
+
+        <div id="validationErrors" class="alert alert-error" style="display: none;"></div>
+
+        <div style="margin-top: 20px; display: flex; gap: 10px;">
+            <button type="submit" class="btn btn-primary">
+                {% if editing %}保存修改{% else %}创建闭环记录{% endif %}
+            </button>
+            <a href="{% url 'production:abnormal_closure_list' %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function validateForm() {
+    const errors = [];
+    const errorDiv = document.getElementById('validationErrors');
+    errorDiv.style.display = 'none';
+    errorDiv.innerHTML = '';
+
+    const responsiblePerson = document.getElementById('responsiblePerson').value.trim();
+    const planDate = document.getElementById('planDate').value;
+    const causeAnalysis = document.getElementById('causeAnalysis').value.trim();
+    const correctionAction = document.getElementById('correctionAction').value.trim();
+    const preventiveAction = document.getElementById('preventiveAction').value.trim();
+
+    if (!responsiblePerson) {
+        errors.push('请输入责任人姓名');
+    } else if (responsiblePerson.length < 2) {
+        errors.push('责任人姓名至少2个字符');
+    }
+
+    if (!planDate) {
+        errors.push('请选择计划完成日期');
+    } else {
+        const today = new Date().toISOString().split('T')[0];
+        if (planDate < today) {
+            errors.push('计划完成日期不能早于今天');
+        }
+    }
+
+    if (!causeAnalysis) {
+        errors.push('请填写异常原因分析');
+    } else if (causeAnalysis.length < 10) {
+        errors.push('异常原因分析至少10个字符');
+    }
+
+    if (!correctionAction) {
+        errors.push('请填写纠正措施');
+    } else if (correctionAction.length < 10) {
+        errors.push('纠正措施至少10个字符');
+    }
+
+    if (!preventiveAction) {
+        errors.push('请填写预防措施');
+    } else if (preventiveAction.length < 10) {
+        errors.push('预防措施至少10个字符');
+    }
+
+    if (errors.length > 0) {
+        errorDiv.style.display = 'block';
+        errorDiv.innerHTML = '<strong>请修正以下错误：</strong><ul style="margin-top: 10px; padding-left: 20px;">' + 
+            errors.map(e => '<li>' + e + '</li>').join('') + '</ul>';
+        return false;
+    }
+
+    return true;
+}
+
+function loadAbnormalInfo() {
+    const abnormalId = document.getElementById('abnormalSelect').value;
+    if (abnormalId) {
+        console.log('Loading info for abnormal:', abnormalId);
+    }
+}
+</script>
+{% endblock %}

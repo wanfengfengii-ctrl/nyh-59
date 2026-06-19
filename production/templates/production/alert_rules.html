@@ -1,0 +1,293 @@
+{% extends 'production/base.html' %}
+
+{% block title %}预警规则管理 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">⚙️ 预警规则管理</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">规则总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.enabled }}</div>
+        <div class="stat-label">已启用规则</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.disabled }}</div>
+        <div class="stat-label">已禁用规则</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.danger_count }}</div>
+        <div class="stat-label">危险级规则</div>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h3 class="card-title" style="margin-bottom: 0;">规则列表</h3>
+        <button class="btn btn-success" onclick="toggleForm()">➕ 新增规则</button>
+    </div>
+
+    <div id="addRuleForm" style="display: none; margin-bottom: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+        <h4 style="margin-bottom: 15px; color: #2c3e50;">新增预警规则</h4>
+        <form method="post" id="ruleForm">
+            {% csrf_token %}
+            <div class="form-row">
+                <div class="form-group">
+                    <label>规则名称 *</label>
+                    <input type="text" name="rule_name" required placeholder="请输入规则名称">
+                </div>
+                <div class="form-group">
+                    <label>预警类型 *</label>
+                    <select name="alert_type" required>
+                        <option value="">请选择预警类型</option>
+                        {% for value, label in alert_type_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>预警级别 *</label>
+                    <select name="alert_level" required>
+                        <option value="">请选择预警级别</option>
+                        {% for value, label in alert_level_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>适用阶段</label>
+                    <select name="stage_type">
+                        <option value="">全部阶段</option>
+                        {% for value, label in stage_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>阈值条件 *</label>
+                    <select name="condition" required>
+                        <option value="">请选择条件</option>
+                        <option value="gt">大于 (&gt;)</option>
+                        <option value="lt">小于 (&lt;)</option>
+                        <option value="gte">大于等于 (&gt;=)</option>
+                        <option value="lte">小于等于 (&lt;=)</option>
+                        <option value="eq">等于 (=)</option>
+                        <option value="between">介于</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>阈值 *</label>
+                    <input type="number" name="threshold" required step="0.01" placeholder="请输入阈值">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>预警描述 *</label>
+                <textarea name="description" rows="2" required placeholder="请输入预警触发时的描述信息"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-primary">保存规则</button>
+                <button type="button" class="btn btn-warning" onclick="toggleForm()">取消</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="filter-bar">
+        <div class="form-group">
+            <label>规则状态</label>
+            <select onchange="window.location.href=this.value">
+                <option value="{% url 'production:alert_rules' %}">全部</option>
+                <option value="?status=enabled" {% if status_filter == 'enabled' %}selected{% endif %}>已启用</option>
+                <option value="?status=disabled" {% if status_filter == 'disabled' %}selected{% endif %}>已禁用</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>预警级别</label>
+            <select onchange="window.location.href=this.value">
+                <option value="{% url 'production:alert_rules' %}">全部</option>
+                {% for value, label in alert_level_choices %}
+                <option value="?level={{ value }}" {% if level_filter == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    {% if rules %}
+    <table>
+        <thead>
+            <tr>
+                <th>规则名称</th>
+                <th>预警类型</th>
+                <th>预警级别</th>
+                <th>适用阶段</th>
+                <th>阈值条件</th>
+                <th>触发次数</th>
+                <th>状态</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rule in rules %}
+            <tr>
+                <td><strong>{{ rule.rule_name }}</strong></td>
+                <td>{{ rule.get_alert_type_display }}</td>
+                <td>
+                    {% if rule.alert_level == 'danger' %}
+                    <span class="badge badge-danger">危险</span>
+                    {% elif rule.alert_level == 'warning' %}
+                    <span class="badge badge-warning">警告</span>
+                    {% else %}
+                    <span class="badge badge-info">提示</span>
+                    {% endif %}
+                </td>
+                <td>{{ rule.get_stage_type_display|default:"全部阶段" }}</td>
+                <td>
+                    {{ rule.get_condition_display }} {{ rule.threshold }}
+                </td>
+                <td>
+                    {% if rule.trigger_count > 0 %}
+                    <span style="color: #e74c3c; font-weight: 600;">{{ rule.trigger_count }}</span>
+                    {% else %}
+                    <span style="color: #999;">0</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <label class="switch">
+                        <input type="checkbox" {% if rule.is_enabled %}checked{% endif %} onchange="toggleRule({{ rule.pk }}, this)">
+                        <span class="slider"></span>
+                    </label>
+                </td>
+                <td>{{ rule.created_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="editRule({{ rule.pk }})">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteRule({{ rule.pk }})">删除</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 30px;">暂无预警规则</p>
+    {% endif %}
+</div>
+
+<style>
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 24px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .3s;
+    border-radius: 24px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: #27ae60;
+}
+
+input:checked + .slider:before {
+    transform: translateX(24px);
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleForm() {
+    const form = document.getElementById('addRuleForm');
+    form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleRule(ruleId, checkbox) {
+    const action = checkbox.checked ? 'enable' : 'disable';
+    if (!confirm(`确定要${checkbox.checked ? '启用' : '禁用'}此规则吗？`)) {
+        checkbox.checked = !checkbox.checked;
+        return;
+    }
+
+    fetch(`/production/alert-rules/${ruleId}/toggle/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ action: action })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+        } else {
+            alert('操作失败: ' + data.error);
+            checkbox.checked = !checkbox.checked;
+        }
+    })
+    .catch(error => {
+        alert('操作失败: ' + error);
+        checkbox.checked = !checkbox.checked;
+    });
+}
+
+function editRule(ruleId) {
+    alert('编辑功能 - 规则ID: ' + ruleId);
+}
+
+function deleteRule(ruleId) {
+    if (!confirm('确定要删除此规则吗？此操作不可恢复。')) return;
+    
+    fetch(`/production/alert-rules/${ruleId}/delete/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('删除成功');
+            window.location.reload();
+        } else {
+            alert('删除失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('删除失败: ' + error);
+    });
+}
+</script>
+{% endblock %}
