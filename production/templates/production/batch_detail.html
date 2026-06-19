@@ -166,7 +166,11 @@
     </div>
     {% else %}
     <p style="color: #999; margin-bottom: 15px;">暂无结晶结果记录</p>
+    {% if evaporation_completed %}
     <a href="{% url 'production:crystallization_create' batch.pk %}" class="btn btn-success">录入结晶结果</a>
+    {% else %}
+    <p style="color: #e67e22; margin-bottom: 15px;"><strong>提示：请先完成蒸发阶段后才能录入结晶结果</strong></p>
+    {% endif %}
     {% endif %}
 </div>
 

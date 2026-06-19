@@ -381,6 +381,12 @@ def batch_detail(request, pk):
         }
         timeline_data.append(item)
     
+    evaporation_completed = ProcessStage.objects.filter(
+        batch=batch,
+        stage_type='evaporation',
+        status='completed'
+    ).exists()
+    
     context = {
         'batch': batch,
         'stages': stages,
@@ -390,6 +396,7 @@ def batch_detail(request, pk):
         'stage_inspections': stage_inspections,
         'timeline_data': timeline_data,
         'stage_choices': STAGE_CHOICES,
+        'evaporation_completed': evaporation_completed,
     }
     return render(request, 'production/batch_detail.html', context)
 
@@ -844,7 +851,7 @@ def crystallization_create(request, batch_id):
             }
             return render(request, 'production/crystallization_form.html', context)
         
-        if need_abnormal and not editing:
+        if need_abnormal:
             pending_data = {
                 'batch_id': batch.pk,
                 'crystal_weight': crystal_weight,
@@ -853,9 +860,16 @@ def crystallization_create(request, batch_id):
                 'operator': operator,
                 'remarks': remarks,
                 'crystallization_rate': round(crystallization_rate, 2),
+                'editing': editing,
+                'crystallization_id': crystallization.pk if crystallization else None,
+                'prefill_abnormal_type': 'low_yield',
+                'prefill_stage_type': 'crystallization',
             }
             request.session['pending_crystallization'] = pending_data
-            messages.warning(request, f'结晶率为{crystallization_rate:.2f}%，低于阈值{CRYSTALLIZATION_THRESHOLD}%，请填写异常处置记录后结晶结果才会保存')
+            if editing:
+                messages.warning(request, f'结晶率为{crystallization_rate:.2f}%，低于阈值{CRYSTALLIZATION_THRESHOLD}%，请填写异常处置记录后修改才会保存')
+            else:
+                messages.warning(request, f'结晶率为{crystallization_rate:.2f}%，低于阈值{CRYSTALLIZATION_THRESHOLD}%，请填写异常处置记录后结晶结果才会保存')
             return redirect('production:abnormal_create', batch_id=batch.pk)
         
         if crystallization:
@@ -881,10 +895,6 @@ def crystallization_create(request, batch_id):
         alerts = check_alerts_for_crystallization(crystal_obj)
         if alerts:
             messages.warning(request, f'检测到 {len(alerts)} 条质量预警信息，请前往预警中心查看')
-        
-        if need_abnormal and editing:
-            messages.warning(request, f'结晶率为{crystallization_rate:.2f}%，低于阈值{CRYSTALLIZATION_THRESHOLD}%，请填写异常处置记录')
-            return redirect('production:abnormal_create', batch_id=batch.pk)
         
         return redirect('production:batch_detail', pk=batch.pk)
     
@@ -1024,23 +1034,48 @@ def abnormal_create(request, batch_id):
                     cryst_date = datetime.strptime(cryst_date, '%Y-%m-%d').date()
                 else:
                     cryst_date = datetime.now().date()
-                CrystallizationResult.objects.create(
-                    batch=batch,
-                    crystal_weight=pending_data['crystal_weight'],
-                    crystal_purity=pending_data['crystal_purity'],
-                    crystallization_date=cryst_date,
-                    operator=pending_data['operator'],
-                    remarks=pending_data.get('remarks', ''),
-                )
-                messages.success(request, f'异常处置记录添加成功，结晶结果已同步保存（结晶率{pending_data.get("crystallization_rate", 0):.2f}%）')
+                
+                crystal_obj = None
+                if pending_data.get('editing') and pending_data.get('crystallization_id'):
+                    crystal_obj = CrystallizationResult.objects.get(pk=pending_data['crystallization_id'])
+                    crystal_obj.crystal_weight = pending_data['crystal_weight']
+                    crystal_obj.crystal_purity = pending_data['crystal_purity']
+                    crystal_obj.crystallization_date = cryst_date
+                    crystal_obj.operator = pending_data['operator']
+                    crystal_obj.remarks = pending_data.get('remarks', '')
+                    crystal_obj.save()
+                    messages.success(request, f'异常处置记录添加成功，结晶结果已更新（结晶率{pending_data.get("crystallization_rate", 0):.2f}%）')
+                else:
+                    crystal_obj = CrystallizationResult.objects.create(
+                        batch=batch,
+                        crystal_weight=pending_data['crystal_weight'],
+                        crystal_purity=pending_data['crystal_purity'],
+                        crystallization_date=cryst_date,
+                        operator=pending_data['operator'],
+                        remarks=pending_data.get('remarks', ''),
+                    )
+                    messages.success(request, f'异常处置记录添加成功，结晶结果已同步保存（结晶率{pending_data.get("crystallization_rate", 0):.2f}%）')
+                
+                alerts = check_alerts_for_crystallization(crystal_obj)
+                if alerts:
+                    messages.warning(request, f'检测到 {len(alerts)} 条质量预警信息，请前往预警中心查看')
             except Exception as e:
                 messages.error(request, f'异常处置记录添加成功，但结晶结果保存失败：{str(e)}')
         else:
             messages.success(request, '异常处置记录添加成功')
         return redirect('production:batch_detail', pk=batch.pk)
     
+    prefill_abnormal_type = None
+    prefill_stage_type = None
+    pending_data = request.session.get('pending_crystallization')
+    if pending_data and pending_data.get('batch_id') == batch.pk:
+        prefill_abnormal_type = pending_data.get('prefill_abnormal_type')
+        prefill_stage_type = pending_data.get('prefill_stage_type')
+    
     context = {
         'batch': batch,
+        'abnormal_type': prefill_abnormal_type,
+        'stage_type': prefill_stage_type,
         'abnormal_type_choices': AbnormalDisposal.ABNORMAL_TYPE_CHOICES,
         'stage_choices': STAGE_CHOICES,
         'disposal_status_choices': AbnormalDisposal.DISPOSAL_STATUS_CHOICES,
