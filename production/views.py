@@ -313,6 +313,15 @@ def inspection_create(request, batch_id):
             errors.append('请输入检测人员')
         
         if stage_type and not errors:
+            stage_exists = ProcessStage.objects.filter(
+                batch=batch,
+                stage_type=stage_type
+            ).exists()
+            if not stage_exists:
+                stage_name = dict(STAGE_CHOICES).get(stage_type, stage_type)
+                errors.append(f'批次尚未进入{stage_name}阶段，请先创建该工序阶段')
+        
+        if stage_type and not errors:
             if stage_type == 'leaching':
                 if not (20 <= temperature <= 100):
                     errors.append('浸取阶段温度应在20-100°C范围内')
@@ -467,6 +476,14 @@ def crystallization_create(request, batch_id):
         
         errors = []
         
+        evaporation_completed = ProcessStage.objects.filter(
+            batch=batch,
+            stage_type='evaporation',
+            status='completed'
+        ).exists()
+        if not evaporation_completed:
+            errors.append('未完成蒸发阶段不能录入结晶结果')
+        
         try:
             crystal_weight = float(crystal_weight)
             if crystal_weight <= 0:
@@ -521,6 +538,20 @@ def crystallization_create(request, batch_id):
             }
             return render(request, 'production/crystallization_form.html', context)
         
+        if need_abnormal and not editing:
+            pending_data = {
+                'batch_id': batch.pk,
+                'crystal_weight': crystal_weight,
+                'crystal_purity': crystal_purity,
+                'crystallization_date': crystallization_date.strftime('%Y-%m-%d') if crystallization_date else None,
+                'operator': operator,
+                'remarks': remarks,
+                'crystallization_rate': round(crystallization_rate, 2),
+            }
+            request.session['pending_crystallization'] = pending_data
+            messages.warning(request, f'结晶率为{crystallization_rate:.2f}%，低于阈值{CRYSTALLIZATION_THRESHOLD}%，请填写异常处置记录后结晶结果才会保存')
+            return redirect('production:abnormal_create', batch_id=batch.pk)
+        
         if crystallization:
             crystallization.crystal_weight = crystal_weight
             crystallization.crystal_purity = crystal_purity
@@ -540,7 +571,7 @@ def crystallization_create(request, batch_id):
             )
             messages.success(request, '结晶结果添加成功')
         
-        if need_abnormal:
+        if need_abnormal and editing:
             messages.warning(request, f'结晶率为{crystallization_rate:.2f}%，低于阈值{CRYSTALLIZATION_THRESHOLD}%，请填写异常处置记录')
             return redirect('production:abnormal_create', batch_id=batch.pk)
         
@@ -674,7 +705,27 @@ def abnormal_create(request, batch_id):
             remarks=remarks,
         )
         
-        messages.success(request, '异常处置记录添加成功')
+        pending_data = request.session.pop('pending_crystallization', None)
+        if pending_data and pending_data.get('batch_id') == batch.pk:
+            try:
+                cryst_date = pending_data.get('crystallization_date')
+                if cryst_date:
+                    cryst_date = datetime.strptime(cryst_date, '%Y-%m-%d').date()
+                else:
+                    cryst_date = datetime.now().date()
+                CrystallizationResult.objects.create(
+                    batch=batch,
+                    crystal_weight=pending_data['crystal_weight'],
+                    crystal_purity=pending_data['crystal_purity'],
+                    crystallization_date=cryst_date,
+                    operator=pending_data['operator'],
+                    remarks=pending_data.get('remarks', ''),
+                )
+                messages.success(request, f'异常处置记录添加成功，结晶结果已同步保存（结晶率{pending_data.get("crystallization_rate", 0):.2f}%）')
+            except Exception as e:
+                messages.error(request, f'异常处置记录添加成功，但结晶结果保存失败：{str(e)}')
+        else:
+            messages.success(request, '异常处置记录添加成功')
         return redirect('production:batch_detail', pk=batch.pk)
     
     context = {

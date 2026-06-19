@@ -123,6 +123,14 @@ class InspectionRecord(models.Model):
         if self.inspection_date > date.today():
             raise ValidationError('检测日期不能晚于当前日期')
 
+        stage_exists = ProcessStage.objects.filter(
+            batch=self.batch,
+            stage_type=self.stage_type
+        ).exists()
+        if not stage_exists:
+            stage_name = dict(STAGE_CHOICES).get(self.stage_type, self.stage_type)
+            raise ValidationError(f'批次尚未进入{stage_name}阶段，请先创建该工序阶段')
+
         if self.stage_type == 'leaching':
             if not (20 <= self.temperature <= 100):
                 raise ValidationError('浸取阶段温度应在20-100°C范围内')
@@ -181,6 +189,14 @@ class CrystallizationResult(models.Model):
 
         if not (0 <= self.crystal_purity <= 100):
             raise ValidationError('结晶纯度应在0-100%范围内')
+
+        evaporation_completed = ProcessStage.objects.filter(
+            batch=self.batch,
+            stage_type='evaporation',
+            status='completed'
+        ).exists()
+        if not evaporation_completed:
+            raise ValidationError('未完成蒸发阶段不能录入结晶结果')
 
 
 class AbnormalDisposal(models.Model):
