@@ -98,6 +98,7 @@
         <form id="materialForm" method="post">
             {% csrf_token %}
             <input type="hidden" id="materialId" name="material_id">
+            <input type="hidden" id="formAction" name="action" value="create">
             <div class="form-row">
                 <div class="form-group">
                     <label>名称 *</label>
@@ -111,7 +112,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>分类 *</label>
-                    <select id="category" name="category" required>
+                    <select id="category" name="category_id" required>
                         <option value="">请选择分类</option>
                         {% for cat in categories %}
                         <option value="{{ cat.id }}">{{ cat.name }}</option>
@@ -135,7 +136,7 @@
                 </div>
                 <div class="form-group">
                     <label>安全库存</label>
-                    <input type="number" id="safe_stock" name="safe_stock" step="0.01" placeholder="安全库存阈值">
+                    <input type="number" id="safe_stock" name="safety_stock" step="0.01" placeholder="安全库存阈值">
                 </div>
             </div>
             <div class="form-row">
@@ -151,7 +152,7 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>保质期(天)</label>
-                    <input type="number" id="shelf_life" name="shelf_life" placeholder="保质期天数">
+                    <input type="number" id="shelf_life" name="expiry_days" placeholder="保质期天数">
                 </div>
                 <div class="form-group">
                     <label>存储条件</label>
@@ -251,10 +252,10 @@ let materialsData = {
         category: {{ item.material.category.id|default:"null" }},
         specification: '{{ item.material.specification|default:""|escapejs }}',
         unit: '{{ item.material.unit|escapejs }}',
-        safe_stock: {{ item.material.safe_stock|default:"null" }},
+        safe_stock: {{ item.material.safety_stock|default:"null" }},
         max_stock: {{ item.material.max_stock|default:"null" }},
         min_stock: {{ item.material.min_stock|default:"null" }},
-        shelf_life: {{ item.material.shelf_life|default:"null" }},
+        shelf_life: {{ item.material.expiry_days|default:"null" }},
         description: '{{ item.material.description|default:""|escapejs }}',
         storage_condition: '{{ item.material.storage_condition|default:""|escapejs }}'
     }{% if not forloop.last %},{% endif %}
@@ -286,6 +287,7 @@ function openModal() {
     document.getElementById('modalTitle').textContent = '新增原料';
     document.getElementById('materialForm').reset();
     document.getElementById('materialId').value = '';
+    document.getElementById('formAction').value = 'create';
     document.getElementById('materialModal').style.display = 'block';
     document.body.style.overflow = 'hidden';
 }
@@ -301,6 +303,7 @@ function editMaterial(materialId) {
     
     document.getElementById('modalTitle').textContent = '编辑原料';
     document.getElementById('materialId').value = materialId;
+    document.getElementById('formAction').value = 'edit';
     document.getElementById('name').value = material.name;
     document.getElementById('code').value = material.code;
     document.getElementById('category').value = material.category || '';
@@ -365,7 +368,8 @@ document.getElementById('materialForm').addEventListener('submit', function(e) {
         method: 'POST',
         body: formData,
         headers: {
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': '{{ csrf_token }}',
+            'X-Requested-With': 'XMLHttpRequest'
         }
     })
     .then(response => response.json())

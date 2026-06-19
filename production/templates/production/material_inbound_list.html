@@ -126,10 +126,11 @@
         </div>
         <form id="inboundForm" method="post" action="{% url 'production:material_inbound_list' %}">
             {% csrf_token %}
+            <input type="hidden" name="action" value="create">
             <div class="form-row">
                 <div class="form-group">
                     <label>原料 *</label>
-                    <select id="material" name="material" required>
+                    <select id="material" name="material_id" required>
                         <option value="">请选择原料</option>
                         {% for mat in materials %}
                         <option value="{{ mat.id }}">{{ mat.name }}</option>
@@ -138,7 +139,7 @@
                 </div>
                 <div class="form-group">
                     <label>供应商 *</label>
-                    <select id="supplier" name="supplier" required>
+                    <select id="supplier" name="supplier_id" required>
                         <option value="">请选择供应商</option>
                         {% for sup in suppliers %}
                         <option value="{{ sup.id }}">{{ sup.name }}</option>

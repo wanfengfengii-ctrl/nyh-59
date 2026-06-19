@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.db.models import Sum, Avg, Count, Q, F, ExpressionWrapper, FloatField
 from django.utils import timezone
 from django.http import JsonResponse, HttpResponse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from django.db import transaction
 import csv
 import io
@@ -3715,7 +3715,7 @@ def material_ledger_export(request):
                     'inbound': 0,
                     'outbound': 0,
                     'loss': loss.quantity,
-                    'operator': loss.reporter or '',
+                    'operator': loss.reported_by or '',
                     'remark': loss.remark or '',
                 })
             

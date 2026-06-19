@@ -112,10 +112,11 @@
         </div>
         <form id="outboundForm" method="post" action="{% url 'production:material_outbound_list' %}">
             {% csrf_token %}
+            <input type="hidden" name="action" value="create">
             <div class="form-row">
                 <div class="form-group">
                     <label>原料 *</label>
-                    <select id="material" name="material" required onchange="loadInboundRefs()">
+                    <select id="material" name="material_id" required onchange="loadInboundRefs()">
                         <option value="">请选择原料</option>
                         {% for mat in materials %}
                         <option value="{{ mat.id }}">{{ mat.name }}</option>
@@ -138,7 +139,7 @@
                 </div>
                 <div class="form-group">
                     <label>入库批次（先进先出）</label>
-                    <select id="inbound_ref" name="inbound_ref">
+                    <select id="inbound_ref" name="inbound_ref_id">
                         <option value="">自动选择（先进先出）</option>
                     </select>
                 </div>
@@ -146,7 +147,7 @@
             <div class="form-row" id="productionFields" style="display: none;">
                 <div class="form-group">
                     <label>生产批次</label>
-                    <select id="batch" name="batch">
+                    <select id="batch" name="batch_id">
                         <option value="">请选择生产批次</option>
                         {% for batch in batches %}
                         <option value="{{ batch.id }}">{{ batch.batch_no }}</option>

@@ -761,7 +761,7 @@ class Material(models.Model):
     def get_stock_status(self):
         current_stock = self.get_current_stock()
         if self.expiry_days > 0:
-            from datetime import timedelta
+            from datetime import date, timedelta
             near_expiry_date = date.today() + timedelta(days=30)
             expired_count = MaterialInbound.objects.filter(
                 material=self, expiry_date__lte=date.today()

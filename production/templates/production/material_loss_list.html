@@ -73,8 +73,8 @@
                 <td style="color: #e74c3c; font-weight: 600;">{{ loss.quantity|floatformat:2 }}</td>
                 <td>{{ loss.get_loss_reason_display }}</td>
                 <td>{{ loss.loss_date|date:"Y-m-d" }}</td>
-                <td>{{ loss.reporter|default:"-" }}</td>
-                <td>{{ loss.approver|default:"-" }}</td>
+                <td>{{ loss.reported_by|default:"-" }}</td>
+                <td>{{ loss.approved_by|default:"-" }}</td>
                 <td>
                     <button class="btn btn-sm btn-danger" onclick="deleteLoss({{ loss.pk }})">删除</button>
                 </td>
@@ -98,10 +98,11 @@
         </div>
         <form id="lossForm" method="post">
             {% csrf_token %}
+            <input type="hidden" name="action" value="create">
             <div class="form-row">
                 <div class="form-group">
                     <label>原料 *</label>
-                    <select id="material" name="material" required>
+                    <select id="material" name="material_id" required>
                         <option value="">请选择原料</option>
                         {% for mat in materials %}
                         <option value="{{ mat.id }}">{{ mat.name }}</option>
@@ -125,7 +126,7 @@
                 </div>
                 <div class="form-group">
                     <label>关联入库批次</label>
-                    <select id="inbound_batch" name="inbound_batch">
+                    <select id="inbound_batch" name="inbound_ref_id">
                         <option value="">无</option>
                     </select>
                 </div>
@@ -147,12 +148,12 @@
                 </div>
                 <div class="form-group">
                     <label>上报人 *</label>
-                    <input type="text" id="reporter" name="reporter" required placeholder="请输入上报人姓名">
+                    <input type="text" id="reporter" name="reported_by" required placeholder="请输入上报人姓名">
                 </div>
             </div>
             <div class="form-group">
                 <label>审批人</label>
-                <input type="text" id="approver" name="approver" placeholder="请输入审批人姓名">
+                <input type="text" id="approver" name="approved_by" placeholder="请输入审批人姓名">
             </div>
             <div class="form-group">
                 <label>损耗说明</label>
@@ -318,7 +319,8 @@ document.getElementById('lossForm').addEventListener('submit', function(e) {
         method: 'POST',
         body: formData,
         headers: {
-            'X-CSRFToken': '{{ csrf_token }}'
+            'X-CSRFToken': '{{ csrf_token }}',
+            'X-Requested-With': 'XMLHttpRequest'
         }
     })
     .then(response => response.json())
