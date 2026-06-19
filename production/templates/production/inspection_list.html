@@ -1,0 +1,87 @@
+{% extends 'production/base.html' %}
+
+{% block title %}检测记录 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔬 检测记录</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>批次编号</label>
+        <input type="text" id="batchFilter" placeholder="输入批次编号" value="{{ batch_filter }}">
+    </div>
+    <div class="form-group">
+        <label>工序阶段</label>
+        <select id="stageFilter">
+            <option value="">全部阶段</option>
+            {% for value, label in stage_choices %}
+            <option value="{{ value }}" {% if stage_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-primary" onclick="filterInspections()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>工序阶段</th>
+                <th>检测日期</th>
+                <th>温度(°C)</th>
+                <th>浓度(%)</th>
+                <th>pH值</th>
+                <th>检测人员</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for insp in inspections %}
+            <tr>
+                <td>{{ insp.batch.batch_no }}</td>
+                <td>{{ insp.get_stage_type_display }}</td>
+                <td>{{ insp.inspection_date }}</td>
+                <td>{{ insp.temperature }}</td>
+                <td>{{ insp.concentration }}</td>
+                <td>{{ insp.ph_value|default:"-" }}</td>
+                <td>{{ insp.operator }}</td>
+                <td>
+                    <a href="{% url 'production:batch_detail' insp.batch.pk %}" class="btn btn-sm btn-primary">查看批次</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: #999; padding: 30px;">
+                    暂无检测记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+function filterInspections() {
+    const batch = document.getElementById('batchFilter').value;
+    const stage = document.getElementById('stageFilter').value;
+    
+    let url = '{% url "production:inspection_list" %}?';
+    if (batch) url += 'batch=' + encodeURIComponent(batch) + '&';
+    if (stage) url += 'stage=' + encodeURIComponent(stage);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:inspection_list" %}';
+}
+
+document.getElementById('batchFilter').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        filterInspections();
+    }
+});
+</script>
+{% endblock %}

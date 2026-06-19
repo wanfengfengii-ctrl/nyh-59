@@ -1,0 +1,57 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{% if editing %}编辑{% else %}录入{% endif %}结晶结果 - {{ batch.batch_no }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">💎 {% if editing %}编辑{% else %}录入{% endif %}结晶结果 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+        <p><strong>批次信息：</strong></p>
+        <p>原料来源：{{ batch.material_source }} | 原料重量：{{ batch.material_weight }}kg</p>
+    </div>
+    
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>结晶重量(kg) *</label>
+                <input type="number" name="crystal_weight" step="0.01" value="{{ crystal_weight }}" required placeholder="请输入结晶重量">
+                <small style="color: #999;">结晶重量不能超过原料重量 ({{ batch.material_weight }}kg)</small>
+            </div>
+            <div class="form-group">
+                <label>结晶纯度(%) *</label>
+                <input type="number" name="crystal_purity" step="0.1" value="{{ crystal_purity }}" required placeholder="请输入结晶纯度">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>结晶日期 *</label>
+                <input type="date" name="crystallization_date" value="{{ crystallization_date|date:'Y-m-d' }}" required>
+            </div>
+            <div class="form-group">
+                <label>操作人员 *</label>
+                <input type="text" name="operator" value="{{ operator }}" required placeholder="请输入操作人员姓名">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息">{{ remarks }}</textarea>
+        </div>
+        
+        <div style="margin-top: 10px; padding: 10px; background: #f8d7da; border-radius: 4px; font-size: 13px; color: #721c24;">
+            <strong>⚠️ 重要提示：</strong>结晶率阈值为 {{ threshold }}%，若结晶率低于此阈值，系统将要求填写异常处置记录。
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">
+                {% if editing %}保存修改{% else %}保存结晶结果{% endif %}
+            </button>
+            <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

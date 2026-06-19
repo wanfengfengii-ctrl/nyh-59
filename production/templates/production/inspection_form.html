@@ -1,0 +1,74 @@
+{% extends 'production/base.html' %}
+
+{% block title %}添加检测记录 - {{ batch.batch_no }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔬 添加检测记录 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+        <p><strong>批次信息：</strong></p>
+        <p>原料来源：{{ batch.material_source }} | 原料重量：{{ batch.material_weight }}kg</p>
+    </div>
+    
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>工序阶段 *</label>
+                <select name="stage_type" required>
+                    <option value="">请选择工序阶段</option>
+                    {% for value, label in stage_choices %}
+                    <option value="{{ value }}" {% if stage_type == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>检测日期 *</label>
+                <input type="date" name="inspection_date" value="{{ inspection_date|date:'Y-m-d' }}" required>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>温度(°C) *</label>
+                <input type="number" name="temperature" step="0.1" value="{{ temperature }}" required placeholder="请输入温度">
+            </div>
+            <div class="form-group">
+                <label>浓度(%) *</label>
+                <input type="number" name="concentration" step="0.1" value="{{ concentration }}" required placeholder="请输入浓度">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>pH值</label>
+                <input type="number" name="ph_value" step="0.1" value="{{ ph_value }}" placeholder="可选">
+            </div>
+            <div class="form-group">
+                <label>检测人员 *</label>
+                <input type="text" name="operator" value="{{ operator }}" required placeholder="请输入检测人员姓名">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息">{{ remarks }}</textarea>
+        </div>
+        
+        <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">
+            <strong>💡 各阶段参数范围参考：</strong><br>
+            浸取：温度20-100°C，浓度5-30%<br>
+            过滤：温度15-80°C，浓度5-35%<br>
+            蒸发：温度60-120°C，浓度20-60%<br>
+            结晶：温度0-50°C，浓度30-80%
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">保存检测记录</button>
+            <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

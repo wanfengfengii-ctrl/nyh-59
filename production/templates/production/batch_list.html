@@ -1,0 +1,106 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料批次 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📦 原料批次</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料来源</label>
+        <input type="text" id="sourceFilter" placeholder="输入来源关键字" value="{{ source_filter }}">
+    </div>
+    <div class="form-group">
+        <label>工序阶段</label>
+        <select id="stageFilter">
+            <option value="">全部阶段</option>
+            {% for value, label in stage_choices %}
+            <option value="{{ value }}" {% if stage_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-primary" onclick="filterBatches()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="actions-bar">
+    <a href="{% url 'production:batch_create' %}" class="btn btn-success">➕ 新增批次</a>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>原料来源</th>
+                <th>原料重量(kg)</th>
+                <th>开始日期</th>
+                <th>操作人员</th>
+                <th>当前阶段</th>
+                <th>结晶率</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for batch in batches %}
+            <tr>
+                <td><strong>{{ batch.batch_no }}</strong></td>
+                <td>{{ batch.material_source }}</td>
+                <td>{{ batch.material_weight }}</td>
+                <td>{{ batch.start_date }}</td>
+                <td>{{ batch.operator }}</td>
+                <td>
+                    <span class="badge badge-info">{{ batch.get_stage_display_current }}</span>
+                </td>
+                <td>
+                    {% with rate=batch.get_crystallization_rate %}
+                        {% if rate %}
+                            {% if rate < 15 %}
+                            <span class="badge badge-danger">{{ rate }}%</span>
+                            {% else %}
+                            <span class="badge badge-success">{{ rate }}%</span>
+                            {% endif %}
+                        {% else %}
+                        <span style="color: #999;">-</span>
+                        {% endif %}
+                    {% endwith %}
+                </td>
+                <td>
+                    <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-sm btn-primary">详情</a>
+                    <a href="{% url 'production:batch_edit' batch.pk %}" class="btn btn-sm btn-warning">编辑</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: #999; padding: 30px;">
+                    暂无批次数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+function filterBatches() {
+    const source = document.getElementById('sourceFilter').value;
+    const stage = document.getElementById('stageFilter').value;
+    
+    let url = '{% url "production:batch_list" %}?';
+    if (source) url += 'source=' + encodeURIComponent(source) + '&';
+    if (stage) url += 'stage=' + encodeURIComponent(stage);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:batch_list" %}';
+}
+
+document.getElementById('sourceFilter').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        filterBatches();
+    }
+});
+</script>
+{% endblock %}

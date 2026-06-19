@@ -1,0 +1,340 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{{ batch.batch_no }} - 批次详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📦 批次详情 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <h3 class="card-title">基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">批次编号</div>
+            <div class="value">{{ batch.batch_no }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料来源</div>
+            <div class="value">{{ batch.material_source }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料重量</div>
+            <div class="value">{{ batch.material_weight }} kg</div>
+        </div>
+        <div class="info-item">
+            <div class="label">开始日期</div>
+            <div class="value">{{ batch.start_date }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">操作人员</div>
+            <div class="value">{{ batch.operator }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">当前阶段</div>
+            <div class="value">
+                <span class="badge badge-info">{{ batch.get_stage_display_current }}</span>
+            </div>
+        </div>
+    </div>
+    {% if batch.remarks %}
+    <div style="margin-top: 15px;">
+        <strong>备注：</strong>{{ batch.remarks }}
+    </div>
+    {% endif %}
+    <div style="margin-top: 15px;">
+        <a href="{% url 'production:batch_edit' batch.pk %}" class="btn btn-warning">编辑批次</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔄 工序阶段时间轴</h3>
+    <div class="timeline">
+        {% for item in timeline_data %}
+        <div class="timeline-item {% if item.stage.status == 'completed' %}completed{% elif item.stage.status == 'in_progress' %}in-progress{% endif %}">
+            <div class="timeline-title">
+                {{ item.stage.get_stage_type_display }}
+                {% if item.stage.status == 'completed' %}
+                <span class="badge badge-success">已完成</span>
+                {% elif item.stage.status == 'in_progress' %}
+                <span class="badge badge-warning">进行中</span>
+                {% else %}
+                <span class="badge badge-info">已暂停</span>
+                {% endif %}
+            </div>
+            <div class="timeline-time">
+                开始: {{ item.stage.start_time|date:"Y-m-d H:i" }}
+                {% if item.stage.end_time %}
+                | 结束: {{ item.stage.end_time|date:"Y-m-d H:i" }}
+                {% endif %}
+                {% if item.stage.operator %}
+                | 操作: {{ item.stage.operator }}
+                {% endif %}
+            </div>
+            <div class="timeline-content">
+                {% if item.inspections %}
+                <p><strong>检测记录：</strong></p>
+                <table style="font-size: 13px;">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>温度(°C)</th>
+                            <th>浓度(%)</th>
+                            <th>检测人</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for insp in item.inspections|slice:":3" %}
+                        <tr>
+                            <td>{{ insp.inspection_date }}</td>
+                            <td>{{ insp.temperature }}</td>
+                            <td>{{ insp.concentration }}</td>
+                            <td>{{ insp.operator }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color: #999;">暂无检测记录</p>
+                {% endif %}
+                {% if item.stage.remarks %}
+                <p style="margin-top: 8px;"><strong>备注：</strong>{{ item.stage.remarks }}</p>
+                {% endif %}
+                {% if item.stage.status == 'in_progress' %}
+                <form method="post" action="{% url 'production:stage_complete' item.stage.pk %}" style="margin-top: 10px;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('确定完成此阶段？')">完成阶段</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <p style="color: #999;">暂无工序阶段记录</p>
+        {% endfor %}
+    </div>
+    <div style="margin-top: 20px;">
+        <a href="{% url 'production:stage_create' batch.pk %}" class="btn btn-primary">添加工序阶段</a>
+        <a href="{% url 'production:inspection_create' batch.pk %}" class="btn btn-success">添加检测记录</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📈 温度与浓度变化趋势</h3>
+    <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">💎 结晶结果</h3>
+    {% if crystallization %}
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">结晶重量</div>
+            <div class="value">{{ crystallization.crystal_weight }} kg</div>
+        </div>
+        <div class="info-item">
+            <div class="label">结晶纯度</div>
+            <div class="value">{{ crystallization.crystal_purity }}%</div>
+        </div>
+        <div class="info-item">
+            <div class="label">结晶率</div>
+            <div class="value">
+                {% with rate=crystallization.get_crystallization_rate %}
+                    {% if rate < 15 %}
+                    <span style="color: #e74c3c;">{{ rate }}%</span>
+                    {% else %}
+                    <span style="color: #27ae60;">{{ rate }}%</span>
+                    {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">结晶日期</div>
+            <div class="value">{{ crystallization.crystallization_date }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">操作人员</div>
+            <div class="value">{{ crystallization.operator }}</div>
+        </div>
+    </div>
+    {% if crystallization.remarks %}
+    <div style="margin-top: 10px;">
+        <strong>备注：</strong>{{ crystallization.remarks }}
+    </div>
+    {% endif %}
+    <div style="margin-top: 15px;">
+        <a href="{% url 'production:crystallization_create' batch.pk %}" class="btn btn-warning">编辑结晶结果</a>
+    </div>
+    {% else %}
+    <p style="color: #999; margin-bottom: 15px;">暂无结晶结果记录</p>
+    <a href="{% url 'production:crystallization_create' batch.pk %}" class="btn btn-success">录入结晶结果</a>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔬 检测记录</h3>
+    {% if inspections %}
+    <table>
+        <thead>
+            <tr>
+                <th>工序阶段</th>
+                <th>检测日期</th>
+                <th>温度(°C)</th>
+                <th>浓度(%)</th>
+                <th>pH值</th>
+                <th>检测人员</th>
+                <th>备注</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for insp in inspections %}
+            <tr>
+                <td>{{ insp.get_stage_type_display }}</td>
+                <td>{{ insp.inspection_date }}</td>
+                <td>{{ insp.temperature }}</td>
+                <td>{{ insp.concentration }}</td>
+                <td>{{ insp.ph_value|default:"-" }}</td>
+                <td>{{ insp.operator }}</td>
+                <td>{{ insp.remarks|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无检测记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">⚠️ 异常处置</h3>
+    {% if abnormal_list %}
+    <table>
+        <thead>
+            <tr>
+                <th>异常类型</th>
+                <th>发生阶段</th>
+                <th>发现日期</th>
+                <th>状态</th>
+                <th>处理人员</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for abnormal in abnormal_list %}
+            <tr>
+                <td>{{ abnormal.get_abnormal_type_display }}</td>
+                <td>{{ abnormal.get_stage_type_display }}</td>
+                <td>{{ abnormal.discover_date }}</td>
+                <td>
+                    {% if abnormal.disposal_status == 'pending' %}
+                    <span class="badge badge-danger">待处理</span>
+                    {% elif abnormal.disposal_status == 'processing' %}
+                    <span class="badge badge-warning">处理中</span>
+                    {% elif abnormal.disposal_status == 'resolved' %}
+                    <span class="badge badge-success">已解决</span>
+                    {% else %}
+                    <span class="badge badge-info">已关闭</span>
+                    {% endif %}
+                </td>
+                <td>{{ abnormal.handler|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:abnormal_edit' abnormal.pk %}" class="btn btn-sm btn-primary">查看/处理</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; margin-bottom: 15px;">暂无异常记录</p>
+    {% endif %}
+    <div style="margin-top: 15px;">
+        <a href="{% url 'production:abnormal_create' batch.pk %}" class="btn btn-danger">添加异常记录</a>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ctx = document.getElementById('trendChart').getContext('2d');
+
+const inspections = [
+    {% for insp in inspections|dictsort:"inspection_date" %}
+    {
+        date: '{{ insp.inspection_date|date:"Y-m-d" }}',
+        stage: '{{ insp.get_stage_type_display }}',
+        temp: {{ insp.temperature }},
+        conc: {{ insp.concentration }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+];
+
+const labels = inspections.map(i => i.date + ' (' + i.stage + ')');
+const tempData = inspections.map(i => i.temp);
+const concData = inspections.map(i => i.conc);
+
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: '温度 (°C)',
+                data: tempData,
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y',
+            },
+            {
+                label: '浓度 (%)',
+                data: concData,
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y1',
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        scales: {
+            y: {
+                type: 'linear',
+                display: true,
+                position: 'left',
+                title: {
+                    display: true,
+                    text: '温度 (°C)'
+                }
+            },
+            y1: {
+                type: 'linear',
+                display: true,
+                position: 'right',
+                title: {
+                    display: true,
+                    text: '浓度 (%)'
+                },
+                grid: {
+                    drawOnChartArea: false,
+                },
+            },
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: '温度与浓度变化趋势图'
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

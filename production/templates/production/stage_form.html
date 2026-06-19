@@ -1,0 +1,48 @@
+{% extends 'production/base.html' %}
+
+{% block title %}添加工序阶段 - {{ batch.batch_no }}{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔄 添加工序阶段 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
+        <p><strong>批次信息：</strong></p>
+        <p>原料来源：{{ batch.material_source }} | 原料重量：{{ batch.material_weight }}kg</p>
+        <p>当前阶段：{{ batch.get_stage_display_current }}</p>
+    </div>
+    
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-group">
+            <label>工序阶段 *</label>
+            <select name="stage_type" required>
+                <option value="">请选择工序阶段</option>
+                {% for value, label in stage_choices %}
+                <option value="{{ value }}" {% if stage_type == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label>操作人员</label>
+            <input type="text" name="operator" value="{{ operator }}" placeholder="请输入操作人员姓名">
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息">{{ remarks }}</textarea>
+        </div>
+        
+        <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">
+            <strong>⚠️ 注意：</strong>工序必须按顺序进行（浸取 → 过滤 → 蒸发 → 结晶），未完成前一阶段不能进入下一阶段。
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">开始此阶段</button>
+            <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-warning">取消</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

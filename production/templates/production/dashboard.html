@@ -1,0 +1,137 @@
+{% extends 'production/base.html' %}
+
+{% block title %}数据概览 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📊 数据概览</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ total_batches }}</div>
+        <div class="stat-label">总批次数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ completed_batches }}</div>
+        <div class="stat-label">已完成批次</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ in_progress_stages }}</div>
+        <div class="stat-label">进行中工序</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ pending_abnormal }}</div>
+        <div class="stat-label">待处理异常</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">📦 最近批次</h3>
+        {% if recent_batches %}
+        <table>
+            <thead>
+                <tr>
+                    <th>批次编号</th>
+                    <th>原料来源</th>
+                    <th>开始日期</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for batch in recent_batches %}
+                <tr>
+                    <td>{{ batch.batch_no }}</td>
+                    <td>{{ batch.material_source }}</td>
+                    <td>{{ batch.start_date }}</td>
+                    <td>
+                        <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-sm btn-primary">查看</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999;">暂无批次数据</p>
+        {% endif %}
+        <div style="margin-top: 15px;">
+            <a href="{% url 'production:batch_list' %}" class="btn btn-primary">查看全部批次</a>
+            <a href="{% url 'production:batch_create' %}" class="btn btn-success">新增批次</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">⚠️ 最近异常</h3>
+        {% if recent_abnormal %}
+        <table>
+            <thead>
+                <tr>
+                    <th>批次</th>
+                    <th>异常类型</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for abnormal in recent_abnormal %}
+                <tr>
+                    <td>{{ abnormal.batch.batch_no }}</td>
+                    <td>{{ abnormal.get_abnormal_type_display }}</td>
+                    <td>
+                        {% if abnormal.disposal_status == 'pending' %}
+                        <span class="badge badge-danger">待处理</span>
+                        {% elif abnormal.disposal_status == 'processing' %}
+                        <span class="badge badge-warning">处理中</span>
+                        {% elif abnormal.disposal_status == 'resolved' %}
+                        <span class="badge badge-success">已解决</span>
+                        {% else %}
+                        <span class="badge badge-info">已关闭</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{% url 'production:abnormal_edit' abnormal.pk %}" class="btn btn-sm btn-warning">处理</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999;">暂无异常记录</p>
+        {% endif %}
+        <div style="margin-top: 15px;">
+            <a href="{% url 'production:abnormal_list' %}" class="btn btn-primary">查看全部异常</a>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔬 最近检测记录</h3>
+    {% if recent_inspections %}
+    <table>
+        <thead>
+            <tr>
+                <th>批次编号</th>
+                <th>工序阶段</th>
+                <th>检测日期</th>
+                <th>温度(°C)</th>
+                <th>浓度(%)</th>
+                <th>检测人员</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for inspection in recent_inspections %}
+            <tr>
+                <td>{{ inspection.batch.batch_no }}</td>
+                <td>{{ inspection.get_stage_type_display }}</td>
+                <td>{{ inspection.inspection_date }}</td>
+                <td>{{ inspection.temperature }}</td>
+                <td>{{ inspection.concentration }}</td>
+                <td>{{ inspection.operator }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999;">暂无检测记录</p>
+    {% endif %}
+</div>
+{% endblock %}

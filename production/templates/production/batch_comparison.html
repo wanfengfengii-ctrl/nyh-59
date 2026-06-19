@@ -1,0 +1,245 @@
+{% extends 'production/base.html' %}
+
+{% block title %}批次对比 - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📈 批次对比</h2>
+
+<div class="card">
+    <h3 class="card-title">选择对比批次</h3>
+    <form method="get">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+            {% for batch in batches %}
+            <label style="display: flex; align-items: center; gap: 5px; padding: 8px 12px; background: #f8f9fa; border-radius: 4px; cursor: pointer;">
+                <input type="checkbox" name="batches" value="{{ batch.pk }}" 
+                    {% if batch.pk|stringformat:"s" in selected_batches %}checked{% endif %}>
+                {{ batch.batch_no }} ({{ batch.material_source }})
+            </label>
+            {% endfor %}
+        </div>
+        <button type="submit" class="btn btn-primary">开始对比</button>
+        <button type="reset" class="btn btn-warning" onclick="window.location.href='{% url "production:batch_comparison" %}'">重置</button>
+    </form>
+</div>
+
+{% if comparison_data %}
+<div class="card">
+    <h3 class="card-title">📊 批次对比结果</h3>
+    <div class="chart-container">
+        <canvas id="comparisonChart"></canvas>
+    </div>
+    
+    <div class="comparison-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>批次编号</th>
+                    <th>原料来源</th>
+                    <th>原料重量(kg)</th>
+                    <th>结晶重量(kg)</th>
+                    <th>结晶率</th>
+                    <th>平均温度(°C)</th>
+                    <th>平均浓度(%)</th>
+                    <th>完成阶段数</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for data in comparison_data %}
+                <tr>
+                    <td><strong>{{ data.batch.batch_no }}</strong></td>
+                    <td>{{ data.batch.material_source }}</td>
+                    <td>{{ data.batch.material_weight }}</td>
+                    <td>
+                        {% if data.crystal %}
+                        {{ data.crystal.crystal_weight }}
+                        {% else %}
+                        <span style="color: #999;">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if data.rate %}
+                            {% if data.rate < 15 %}
+                            <span class="badge badge-danger">{{ data.rate }}%</span>
+                            {% else %}
+                            <span class="badge badge-success">{{ data.rate }}%</span>
+                            {% endif %}
+                        {% else %}
+                        <span style="color: #999;">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ data.avg_temp|default:"-" }}</td>
+                    <td>{{ data.avg_conc|default:"-" }}</td>
+                    <td>{{ data.stage_count }}/4</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if source_stats %}
+<div class="card comparison-section">
+    <h3 class="card-title">📊 按原料来源统计</h3>
+    <div class="chart-container">
+        <canvas id="sourceChart"></canvas>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>原料来源</th>
+                <th>总批次数</th>
+                <th>已完成批次</th>
+                <th>平均结晶率</th>
+                <th>最低结晶率</th>
+                <th>最高结晶率</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stat in source_stats %}
+            <tr>
+                <td><strong>{{ stat.source }}</strong></td>
+                <td>{{ stat.batch_count }}</td>
+                <td>{{ stat.completed_count }}</td>
+                <td>
+                    {% if stat.avg_rate < 15 %}
+                    <span class="badge badge-danger">{{ stat.avg_rate }}%</span>
+                    {% else %}
+                    <span class="badge badge-success">{{ stat.avg_rate }}%</span>
+                    {% endif %}
+                </td>
+                <td>{{ stat.min_rate }}%</td>
+                <td>{{ stat.max_rate }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if comparison_data %}
+<script>
+const ctx = document.getElementById('comparisonChart').getContext('2d');
+
+const labels = [{% for data in comparison_data %}'{{ data.batch.batch_no }}'{% if not forloop.last %},{% endif %}{% endfor %}];
+const rates = [{% for data in comparison_data %}{{ data.rate|default:0 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const avgTemps = [{% for data in comparison_data %}{{ data.avg_temp|default:0 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const avgConcs = [{% for data in comparison_data %}{{ data.avg_conc|default:0 }}{% if not forloop.last %},{% endif %}{% endfor %}];
+
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: labels,
+        datasets: [
+            {
+                label: '结晶率 (%)',
+                data: rates,
+                backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                borderColor: '#667eea',
+                borderWidth: 1,
+            },
+            {
+                label: '平均温度 (°C)',
+                data: avgTemps,
+                backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                borderColor: '#e74c3c',
+                borderWidth: 1,
+            },
+            {
+                label: '平均浓度 (%)',
+                data: avgConcs,
+                backgroundColor: 'rgba(39, 174, 96, 0.7)',
+                borderColor: '#27ae60',
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: '批次对比图表'
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+
+{% if source_stats %}
+<script>
+const sourceCtx = document.getElementById('sourceChart').getContext('2d');
+
+const sourceLabels = [{% for stat in source_stats %}'{{ stat.source }}'{% if not forloop.last %},{% endif %}{% endfor %}];
+const avgRates = [{% for stat in source_stats %}{{ stat.avg_rate }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const minRates = [{% for stat in source_stats %}{{ stat.min_rate }}{% if not forloop.last %},{% endif %}{% endfor %}];
+const maxRates = [{% for stat in source_stats %}{{ stat.max_rate }}{% if not forloop.last %},{% endif %}{% endfor %}];
+
+new Chart(sourceCtx, {
+    type: 'bar',
+    data: {
+        labels: sourceLabels,
+        datasets: [
+            {
+                label: '平均结晶率 (%)',
+                data: avgRates,
+                backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                borderColor: '#667eea',
+                borderWidth: 1,
+            },
+            {
+                label: '最低结晶率 (%)',
+                data: minRates,
+                backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                borderColor: '#e74c3c',
+                borderWidth: 1,
+            },
+            {
+                label: '最高结晶率 (%)',
+                data: maxRates,
+                backgroundColor: 'rgba(39, 174, 96, 0.7)',
+                borderColor: '#27ae60',
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: '不同原料来源结晶率对比'
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: '结晶率 (%)'
+                }
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

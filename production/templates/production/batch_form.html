@@ -1,0 +1,59 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{% if editing %}编辑批次{% else %}新增批次{% endif %} - 土法炼硝批次监测系统{% endblock %}
+
+{% block content %}
+<h2 class="page-title">{% if editing %}📝 编辑批次{% else %}➕ 新增批次{% endif %}</h2>
+
+<div class="card">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>批次编号 *</label>
+                <input type="text" name="batch_no" value="{{ batch_no }}" {% if editing %}readonly{% endif %} required placeholder="请输入批次编号">
+                {% if editing %}
+                <small style="color: #999;">批次编号创建后不可修改</small>
+                {% endif %}
+            </div>
+            <div class="form-group">
+                <label>原料来源 *</label>
+                <input type="text" name="material_source" value="{{ material_source }}" required placeholder="请输入原料来源">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>原料重量(kg) *</label>
+                <input type="number" name="material_weight" step="0.01" value="{{ material_weight }}" required placeholder="请输入原料重量">
+            </div>
+            <div class="form-group">
+                <label>开始日期 *</label>
+                <input type="date" name="start_date" value="{{ start_date|date:'Y-m-d' }}" required>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>操作人员 *</label>
+            <input type="text" name="operator" value="{{ operator }}" required placeholder="请输入操作人员姓名">
+        </div>
+        
+        <div class="form-group">
+            <label>备注</label>
+            <textarea name="remarks" rows="3" placeholder="请输入备注信息">{{ remarks }}</textarea>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button type="submit" class="btn btn-primary">
+                {% if editing %}保存修改{% else %}创建批次{% endif %}
+            </button>
+            {% if editing %}
+            <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-warning">取消</a>
+            {% else %}
+            <a href="{% url 'production:batch_list' %}" class="btn btn-warning">取消</a>
+            {% endif %}
+        </div>
+    </form>
+</div>
+{% endblock %}
