@@ -1,0 +1,420 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料出库 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📤 原料出库</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料筛选</label>
+        <select id="materialFilter">
+            <option value="">全部原料</option>
+            {% for mat in materials %}
+            <option value="{{ mat.id }}" {% if material_filter == mat.id|stringformat:"i" %}selected{% endif %}>{{ mat.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>出库类型</label>
+        <select id="typeFilter">
+            <option value="">全部类型</option>
+            {% for value, label in outbound_type_choices %}
+            <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>生产批次</label>
+        <select id="batchFilter">
+            <option value="">全部批次</option>
+            {% for batch in batches %}
+            <option value="{{ batch.id }}" {% if batch_filter == batch.id|stringformat:"i" %}selected{% endif %}>{{ batch.batch_no }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>开始日期</label>
+        <input type="date" id="startDate" value="{{ start_date|default:'' }}">
+    </div>
+    <div class="form-group">
+        <label>结束日期</label>
+        <input type="date" id="endDate" value="{{ end_date|default:'' }}">
+    </div>
+    <button class="btn btn-primary" onclick="filterOutbounds()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(2, 1fr); max-width: 600px;">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_count }}</div>
+        <div class="stat-label">总单数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_quantity|floatformat:2 }}</div>
+        <div class="stat-label">总数量</div>
+    </div>
+</div>
+
+<div class="actions-bar">
+    <button class="btn btn-success" onclick="openOutboundModal()">➕ 新增出库</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>出库单号</th>
+                <th>原料</th>
+                <th>数量</th>
+                <th>出库类型</th>
+                <th>出库日期</th>
+                <th>关联批次</th>
+                <th>领用人</th>
+                <th>经办人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for outbound in outbounds %}
+            <tr>
+                <td><strong>{{ outbound.outbound_no }}</strong></td>
+                <td>{{ outbound.material.name }}</td>
+                <td>{{ outbound.quantity|floatformat:2 }}</td>
+                <td>
+                    <span class="badge badge-info">{{ outbound.get_outbound_type_display }}</span>
+                </td>
+                <td>{{ outbound.outbound_date }}</td>
+                <td>{{ outbound.batch.batch_no|default:"-" }}</td>
+                <td>{{ outbound.receiver|default:"-" }}</td>
+                <td>{{ outbound.operator|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:material_outbound_detail' outbound.pk %}" class="btn btn-sm btn-primary">详情</a>
+                    <button class="btn btn-sm btn-danger" onclick="deleteOutbound({{ outbound.pk }})">删除</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: #999; padding: 30px;">
+                    暂无出库记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="outboundModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>新增出库</h3>
+            <span class="modal-close" onclick="closeOutboundModal()">&times;</span>
+        </div>
+        <form id="outboundForm" method="post" action="{% url 'production:material_outbound_list' %}">
+            {% csrf_token %}
+            <div class="form-row">
+                <div class="form-group">
+                    <label>原料 *</label>
+                    <select id="material" name="material" required onchange="loadInboundRefs()">
+                        <option value="">请选择原料</option>
+                        {% for mat in materials %}
+                        <option value="{{ mat.id }}">{{ mat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>数量 *</label>
+                    <input type="number" id="quantity" name="quantity" step="0.01" required placeholder="请输入出库数量">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>出库类型 *</label>
+                    <select id="outbound_type" name="outbound_type" required onchange="toggleProductionFields()">
+                        {% for value, label in outbound_type_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>入库批次（先进先出）</label>
+                    <select id="inbound_ref" name="inbound_ref">
+                        <option value="">自动选择（先进先出）</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row" id="productionFields" style="display: none;">
+                <div class="form-group">
+                    <label>生产批次</label>
+                    <select id="batch" name="batch">
+                        <option value="">请选择生产批次</option>
+                        {% for batch in batches %}
+                        <option value="{{ batch.id }}">{{ batch.batch_no }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>使用工序</label>
+                    <select id="usage_stage" name="usage_stage">
+                        <option value="">请选择工序</option>
+                        {% for value, label in stage_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="form-row" id="plannedQuantityField" style="display: none;">
+                <div class="form-group">
+                    <label>计划用量</label>
+                    <input type="number" id="planned_quantity" name="planned_quantity" step="0.01" placeholder="请输入计划用量">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>出库日期 *</label>
+                    <input type="date" id="outbound_date" name="outbound_date" required value="{% now 'Y-m-d' %}">
+                </div>
+                <div class="form-group">
+                    <label>仓库</label>
+                    <input type="text" id="warehouse" name="warehouse" placeholder="请输入仓库">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>库位</label>
+                    <input type="text" id="location" name="location" placeholder="请输入库位">
+                </div>
+                <div class="form-group">
+                    <label>领用人</label>
+                    <input type="text" id="receiver" name="receiver" placeholder="请输入领用人">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>经办人 *</label>
+                    <input type="text" id="operator" name="operator" required placeholder="请输入经办人">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <textarea id="remark" name="remark" rows="3" placeholder="请输入备注信息"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-warning" onclick="closeOutboundModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: white;
+    margin: 30px auto;
+    padding: 0;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.modal-close:hover {
+    opacity: 0.8;
+}
+
+#outboundForm {
+    padding: 25px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let inboundRefsData = {};
+
+{% for mat in materials %}
+inboundRefsData[{{ mat.id }}] = [
+    {% for inbound in mat.inbounds.all %}
+    {% if inbound.get_remaining_quantity > 0 %}
+    {
+        id: {{ inbound.id }},
+        inbound_no: '{{ inbound.inbound_no }}',
+        remaining: {{ inbound.get_remaining_quantity }},
+        inbound_date: '{{ inbound.inbound_date }}'
+    }{% if not forloop.last %},{% endif %}
+    {% endif %}
+    {% endfor %}
+];
+{% endfor %}
+
+function filterOutbounds() {
+    const material = document.getElementById('materialFilter').value;
+    const type = document.getElementById('typeFilter').value;
+    const batch = document.getElementById('batchFilter').value;
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    
+    let url = '{% url "production:material_outbound_list" %}?';
+    if (material) url += 'material=' + encodeURIComponent(material) + '&';
+    if (type) url += 'type=' + encodeURIComponent(type) + '&';
+    if (batch) url += 'batch=' + encodeURIComponent(batch) + '&';
+    if (startDate) url += 'start_date=' + encodeURIComponent(startDate) + '&';
+    if (endDate) url += 'end_date=' + encodeURIComponent(endDate);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_outbound_list" %}';
+}
+
+document.getElementById('startDate').addEventListener('change', function() {
+    const endDate = document.getElementById('endDate');
+    if (this.value && endDate.value && this.value > endDate.value) {
+        endDate.value = this.value;
+    }
+});
+
+document.getElementById('endDate').addEventListener('change', function() {
+    const startDate = document.getElementById('startDate');
+    if (this.value && startDate.value && this.value < startDate.value) {
+        startDate.value = this.value;
+    }
+});
+
+function toggleProductionFields() {
+    const outboundType = document.getElementById('outbound_type').value;
+    const productionFields = document.getElementById('productionFields');
+    const plannedQuantityField = document.getElementById('plannedQuantityField');
+    
+    if (outboundType === 'production') {
+        productionFields.style.display = 'grid';
+        plannedQuantityField.style.display = 'grid';
+    } else {
+        productionFields.style.display = 'none';
+        plannedQuantityField.style.display = 'none';
+        document.getElementById('batch').value = '';
+        document.getElementById('usage_stage').value = '';
+        document.getElementById('planned_quantity').value = '';
+    }
+}
+
+function loadInboundRefs() {
+    const materialId = document.getElementById('material').value;
+    const inboundRefSelect = document.getElementById('inbound_ref');
+    
+    inboundRefSelect.innerHTML = '<option value="">自动选择（先进先出）</option>';
+    
+    if (materialId && inboundRefsData[materialId]) {
+        const refs = inboundRefsData[materialId].slice().sort((a, b) => new Date(a.inbound_date) - new Date(b.inbound_date));
+        refs.forEach(ref => {
+            const option = document.createElement('option');
+            option.value = ref.id;
+            option.textContent = `${ref.inbound_no} (剩余: ${ref.remaining})`;
+            inboundRefSelect.appendChild(option);
+        });
+    }
+}
+
+function openOutboundModal() {
+    document.getElementById('outboundForm').reset();
+    document.getElementById('outbound_date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('inbound_ref').innerHTML = '<option value="">自动选择（先进先出）</option>';
+    document.getElementById('productionFields').style.display = 'none';
+    document.getElementById('plannedQuantityField').style.display = 'none';
+    document.getElementById('outboundModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeOutboundModal() {
+    document.getElementById('outboundModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+function deleteOutbound(outboundId) {
+    if (!confirm('确定要删除此出库记录吗？删除后将同时删除关联的批次使用记录，且无法恢复。')) return;
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '{% url "production:material_outbound_list" %}';
+    
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'action';
+    actionInput.value = 'delete';
+    form.appendChild(actionInput);
+    
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'outbound_id';
+    idInput.value = outboundId;
+    form.appendChild(idInput);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('outboundModal');
+    if (event.target === modal) {
+        closeOutboundModal();
+    }
+}
+</script>
+{% endblock %}

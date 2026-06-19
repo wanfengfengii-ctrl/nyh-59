@@ -1,0 +1,386 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料入库 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📥 原料入库</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料筛选</label>
+        <select id="materialFilter">
+            <option value="">全部原料</option>
+            {% for mat in materials %}
+            <option value="{{ mat.id }}" {% if material_filter == mat.id|stringformat:"i" %}selected{% endif %}>{{ mat.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>供应商筛选</label>
+        <select id="supplierFilter">
+            <option value="">全部供应商</option>
+            {% for sup in suppliers %}
+            <option value="{{ sup.id }}" {% if supplier_filter == sup.id|stringformat:"i" %}selected{% endif %}>{{ sup.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>入库类型</label>
+        <select id="typeFilter">
+            <option value="">全部类型</option>
+            {% for value, label in inbound_type_choices %}
+            <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>开始日期</label>
+        <input type="date" id="startDate" value="{{ start_date|default:'' }}">
+    </div>
+    <div class="form-group">
+        <label>结束日期</label>
+        <input type="date" id="endDate" value="{{ end_date|default:'' }}">
+    </div>
+    <button class="btn btn-primary" onclick="filterInbounds()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_count }}</div>
+        <div class="stat-label">总单数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_quantity|floatformat:2 }}</div>
+        <div class="stat-label">总数量</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">¥{{ stats.total_amount|floatformat:2 }}</div>
+        <div class="stat-label">总金额</div>
+    </div>
+</div>
+
+<div class="actions-bar">
+    <button class="btn btn-success" onclick="openInboundModal()">➕ 新加入库</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>入库单号</th>
+                <th>原料</th>
+                <th>供应商</th>
+                <th>数量</th>
+                <th>单价</th>
+                <th>总金额</th>
+                <th>入库日期</th>
+                <th>类型</th>
+                <th>经办人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for inbound in inbounds %}
+            <tr>
+                <td>
+                    <a href="{% url 'production:material_inbound_detail' inbound.pk %}" style="color: #667eea; text-decoration: none; font-weight: 600;">
+                        {{ inbound.inbound_no }}
+                    </a>
+                </td>
+                <td>{{ inbound.material.name }}</td>
+                <td>{{ inbound.supplier.name|default:"-" }}</td>
+                <td>{{ inbound.quantity|floatformat:2 }}</td>
+                <td>¥{{ inbound.unit_price|floatformat:2 }}</td>
+                <td>¥{{ inbound.total_amount|floatformat:2 }}</td>
+                <td>{{ inbound.inbound_date }}</td>
+                <td>
+                    <span class="badge badge-info">{{ inbound.get_inbound_type_display }}</span>
+                </td>
+                <td>{{ inbound.operator|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:material_inbound_detail' inbound.pk %}" class="btn btn-sm btn-primary">详情</a>
+                    {% if inbound.get_remaining_quantity == inbound.quantity %}
+                    <button class="btn btn-sm btn-danger" onclick="deleteInbound({{ inbound.pk }})">删除</button>
+                    {% else %}
+                    <button class="btn btn-sm btn-secondary" style="background: #95a5a6; cursor: not-allowed;" disabled title="存在出库或损耗记录，无法删除">删除</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="10" style="text-align: center; color: #999; padding: 30px;">
+                    暂无入库记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="inboundModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>新加入库</h3>
+            <span class="modal-close" onclick="closeInboundModal()">&times;</span>
+        </div>
+        <form id="inboundForm" method="post" action="{% url 'production:material_inbound_list' %}">
+            {% csrf_token %}
+            <div class="form-row">
+                <div class="form-group">
+                    <label>原料 *</label>
+                    <select id="material" name="material" required>
+                        <option value="">请选择原料</option>
+                        {% for mat in materials %}
+                        <option value="{{ mat.id }}">{{ mat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>供应商 *</label>
+                    <select id="supplier" name="supplier" required>
+                        <option value="">请选择供应商</option>
+                        {% for sup in suppliers %}
+                        <option value="{{ sup.id }}">{{ sup.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>数量 *</label>
+                    <input type="number" id="quantity" name="quantity" step="0.01" required placeholder="请输入入库数量">
+                </div>
+                <div class="form-group">
+                    <label>单价 *</label>
+                    <input type="number" id="unit_price" name="unit_price" step="0.01" required placeholder="请输入单价">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>入库类型 *</label>
+                    <select id="inbound_type" name="inbound_type" required>
+                        {% for value, label in inbound_type_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>原料批次号</label>
+                    <input type="text" id="batch_no" name="batch_no" placeholder="请输入原料批次号">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>生产日期</label>
+                    <input type="date" id="production_date" name="production_date">
+                </div>
+                <div class="form-group">
+                    <label>有效期至</label>
+                    <input type="date" id="expiry_date" name="expiry_date">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>入库日期 *</label>
+                    <input type="date" id="inbound_date" name="inbound_date" required value="{% now 'Y-m-d' %}">
+                </div>
+                <div class="form-group">
+                    <label>仓库</label>
+                    <input type="text" id="warehouse" name="warehouse" placeholder="请输入仓库">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>库位</label>
+                    <input type="text" id="location" name="location" placeholder="请输入库位">
+                </div>
+                <div class="form-group">
+                    <label>验收人</label>
+                    <input type="text" id="inspector" name="inspector" placeholder="请输入验收人">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>经办人 *</label>
+                    <input type="text" id="operator" name="operator" required placeholder="请输入经办人">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <textarea id="remark" name="remark" rows="3" placeholder="请输入备注信息"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-warning" onclick="closeInboundModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: white;
+    margin: 30px auto;
+    padding: 0;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.modal-close:hover {
+    opacity: 0.8;
+}
+
+#inboundForm {
+    padding: 25px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterInbounds() {
+    const material = document.getElementById('materialFilter').value;
+    const supplier = document.getElementById('supplierFilter').value;
+    const type = document.getElementById('typeFilter').value;
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    
+    let url = '{% url "production:material_inbound_list" %}?';
+    if (material) url += 'material=' + encodeURIComponent(material) + '&';
+    if (supplier) url += 'supplier=' + encodeURIComponent(supplier) + '&';
+    if (type) url += 'type=' + encodeURIComponent(type) + '&';
+    if (startDate) url += 'start_date=' + encodeURIComponent(startDate) + '&';
+    if (endDate) url += 'end_date=' + encodeURIComponent(endDate);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_inbound_list" %}';
+}
+
+document.getElementById('startDate').addEventListener('change', function() {
+    const endDate = document.getElementById('endDate');
+    if (this.value && endDate.value && this.value > endDate.value) {
+        endDate.value = this.value;
+    }
+});
+
+document.getElementById('endDate').addEventListener('change', function() {
+    const startDate = document.getElementById('startDate');
+    if (this.value && startDate.value && this.value < startDate.value) {
+        startDate.value = this.value;
+    }
+});
+
+function openInboundModal() {
+    document.getElementById('inboundForm').reset();
+    document.getElementById('inbound_date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('inboundModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeInboundModal() {
+    document.getElementById('inboundModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+function deleteInbound(inboundId) {
+    if (!confirm('确定要删除此入库记录吗？删除后将无法恢复。')) return;
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '{% url "production:material_inbound_list" %}';
+    
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'action';
+    actionInput.value = 'delete';
+    form.appendChild(actionInput);
+    
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'inbound_id';
+    idInput.value = inboundId;
+    form.appendChild(idInput);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('inboundModal');
+    if (event.target === modal) {
+        closeInboundModal();
+    }
+}
+
+document.getElementById('quantity').addEventListener('input', calculateTotal);
+document.getElementById('unit_price').addEventListener('input', calculateTotal);
+
+function calculateTotal() {
+    const quantity = parseFloat(document.getElementById('quantity').value) || 0;
+    const unitPrice = parseFloat(document.getElementById('unit_price').value) || 0;
+    const total = (quantity * unitPrice).toFixed(2);
+}
+</script>
+{% endblock %}

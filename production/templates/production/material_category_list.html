@@ -1,0 +1,320 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料分类管理{% endblock %}
+
+{% block content %}
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+    
+    .modal-overlay.active {
+        display: flex;
+    }
+    
+    .modal {
+        background: white;
+        border-radius: 8px;
+        width: 90%;
+        max-width: 500px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+    
+    .modal-header {
+        padding: 15px 20px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .modal-header h3 {
+        margin: 0;
+        font-size: 18px;
+        color: #2c3e50;
+    }
+    
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #999;
+        padding: 0;
+        line-height: 1;
+    }
+    
+    .modal-close:hover {
+        color: #e74c3c;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .modal-footer {
+        padding: 15px 20px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+</style>
+
+<h2 class="page-title">📂 原料分类管理</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>上级分类</label>
+        <select id="parentFilter">
+            <option value="">全部分类</option>
+            {% for cat in all_categories %}
+            <option value="{{ cat.pk }}" {% if parent_filter == cat.pk|stringformat:"i" %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-primary" onclick="filterCategories()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="actions-bar">
+    <button class="btn btn-success" onclick="openCategoryModal()">➕ 新增分类</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>名称</th>
+                <th>编码</th>
+                <th>完整路径</th>
+                <th>排序</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for category in categories %}
+            <tr>
+                <td><strong>{{ category.name }}</strong></td>
+                <td>{{ category.code }}</td>
+                <td>{{ category.full_path|default:category.name }}</td>
+                <td>{{ category.sort_order }}</td>
+                <td>
+                    {% if category.status == 'active' %}
+                    <span class="badge badge-success">启用</span>
+                    {% else %}
+                    <span class="badge badge-danger">停用</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="editCategory({{ category.pk }})">编辑</button>
+                    {% if category.status == 'active' %}
+                    <button class="btn btn-sm btn-warning" onclick="toggleStatus({{ category.pk }}, 'inactive')">停用</button>
+                    {% else %}
+                    <button class="btn btn-sm btn-success" onclick="toggleStatus({{ category.pk }}, 'active')">启用</button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-danger" onclick="deleteCategory({{ category.pk }})">删除</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" style="text-align: center; color: #999; padding: 30px;">
+                    暂无分类数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="modal-overlay" id="categoryModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="modalTitle">新增分类</h3>
+            <button class="modal-close" onclick="closeCategoryModal()">&times;</button>
+        </div>
+        <form id="categoryForm" method="post">
+            {% csrf_token %}
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="id_name">名称</label>
+                    <input type="text" id="id_name" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="id_code">编码</label>
+                    <input type="text" id="id_code" name="code" required>
+                </div>
+                <div class="form-group">
+                    <label for="id_parent">上级分类</label>
+                    <select id="id_parent" name="parent">
+                        <option value="">无（顶级分类）</option>
+                        {% for cat in all_categories %}
+                        <option value="{{ cat.pk }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="id_description">描述</label>
+                    <textarea id="id_description" name="description" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="id_sort_order">排序</label>
+                    <input type="number" id="id_sort_order" name="sort_order" value="0" min="0">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-warning" onclick="closeCategoryModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function filterCategories() {
+    const parent = document.getElementById('parentFilter').value;
+    let url = '{% url "production:material_category_list" %}?';
+    if (parent) url += 'parent=' + encodeURIComponent(parent);
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_category_list" %}';
+}
+
+function openCategoryModal() {
+    document.getElementById('modalTitle').textContent = '新增分类';
+    document.getElementById('categoryForm').reset();
+    document.getElementById('categoryForm').action = '{% url "production:material_category_list" %}';
+    document.getElementById('categoryModal').classList.add('active');
+}
+
+function closeCategoryModal() {
+    document.getElementById('categoryModal').classList.remove('active');
+}
+
+function editCategory(pk) {
+    fetch(`/production/material/category/${pk}/get/`, {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('modalTitle').textContent = '编辑分类';
+            document.getElementById('id_name').value = data.data.name;
+            document.getElementById('id_code').value = data.data.code;
+            document.getElementById('id_parent').value = data.data.parent || '';
+            document.getElementById('id_description').value = data.data.description || '';
+            document.getElementById('id_sort_order').value = data.data.sort_order;
+            document.getElementById('categoryForm').action = `/production/material/category/${pk}/edit/`;
+            document.getElementById('categoryModal').classList.add('active');
+        } else {
+            alert('获取数据失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('获取数据失败: ' + error);
+    });
+}
+
+function toggleStatus(pk, status) {
+    const action = status === 'active' ? '启用' : '停用';
+    if (!confirm(`确定要${action}此分类吗？`)) return;
+    
+    fetch(`/production/material/category/${pk}/toggle-status/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: status })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('操作失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('操作失败: ' + error);
+    });
+}
+
+function deleteCategory(pk) {
+    if (!confirm('确定要删除此分类吗？此操作不可恢复。')) return;
+    
+    fetch(`/production/material/category/${pk}/delete/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('删除失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('删除失败: ' + error);
+    });
+}
+
+document.getElementById('categoryForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeCategoryModal();
+            window.location.reload();
+        } else {
+            alert('保存失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('保存失败: ' + error);
+    });
+});
+
+document.getElementById('categoryModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeCategoryModal();
+    }
+});
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeCategoryModal();
+    }
+});
+</script>
+{% endblock %}

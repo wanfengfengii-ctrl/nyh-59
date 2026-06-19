@@ -1,0 +1,220 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料台账 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📒 原料台账</h2>
+
+<div class="filter-bar">
+    <form method="get" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; width: 100%;">
+        <div class="form-group" style="margin-bottom: 0; min-width: 200px;">
+            <label>原料</label>
+            <select name="material">
+                <option value="">全部原料</option>
+                {% for mat in materials %}
+                <option value="{{ mat.id }}" {% if material_filter == mat.id|stringformat:"s" %}selected{% endif %}>{{ mat.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 0; min-width: 150px;">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date|default:'' }}">
+        </div>
+        <div class="form-group" style="margin-bottom: 0; min-width: 150px;">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date|default:'' }}">
+        </div>
+        <button type="submit" class="btn btn-primary">🔍 查询</button>
+        <a href="{% url 'production:material_ledger' %}" class="btn btn-warning">重置</a>
+        <button type="button" class="btn btn-success" onclick="openExportModal()">📥 导出CSV</button>
+    </form>
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(5, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value">{{ totals.opening|default:0 }}</div>
+        <div class="stat-label">期初库存</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ totals.inbound|default:0 }}</div>
+        <div class="stat-label">本期入库</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ totals.outbound|default:0 }}</div>
+        <div class="stat-label">本期出库</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ totals.loss|default:0 }}</div>
+        <div class="stat-label">本期损耗</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #667eea;">{{ totals.closing|default:0 }}</div>
+        <div class="stat-label">期末库存</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📋 原料台账明细</h3>
+    {% if ledger_data %}
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 40px;"></th>
+                    <th>原料名称</th>
+                    <th>分类</th>
+                    <th>单位</th>
+                    <th style="text-align: right;">期初库存</th>
+                    <th style="text-align: right;">本期入库</th>
+                    <th style="text-align: right;">本期出库</th>
+                    <th style="text-align: right;">本期损耗</th>
+                    <th style="text-align: right;">期末库存</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ledger in ledger_data %}
+                <tr style="cursor: pointer;" onclick="toggleDetails('{{ ledger.material_id }}')">
+                    <td>
+                        <span id="toggle-icon-{{ ledger.material_id }}" style="font-size: 12px;">▶</span>
+                    </td>
+                    <td><strong>{{ ledger.material_name }}</strong></td>
+                    <td>{{ ledger.category|default:"-" }}</td>
+                    <td>{{ ledger.unit|default:"-" }}</td>
+                    <td style="text-align: right;">{{ ledger.opening|default:0 }}</td>
+                    <td style="text-align: right; color: #27ae60;">{{ ledger.inbound|default:0 }}</td>
+                    <td style="text-align: right; color: #e74c3c;">{{ ledger.outbound|default:0 }}</td>
+                    <td style="text-align: right; color: #f39c12;">{{ ledger.loss|default:0 }}</td>
+                    <td style="text-align: right; font-weight: 600; color: #667eea;">{{ ledger.closing|default:0 }}</td>
+                </tr>
+                <tr id="details-row-{{ ledger.material_id }}" style="display: none;">
+                    <td colspan="9" style="padding: 0; background: #f8f9fa;">
+                        <div style="padding: 15px;">
+                            <h4 style="margin-bottom: 10px; color: #2c3e50;">📝 流水记录</h4>
+                            {% if ledger.records %}
+                            <table style="font-size: 13px;">
+                                <thead>
+                                    <tr>
+                                        <th>日期</th>
+                                        <th>类型</th>
+                                        <th>单号</th>
+                                        <th>关联</th>
+                                        <th style="text-align: right;">入库</th>
+                                        <th style="text-align: right;">出库</th>
+                                        <th style="text-align: right;">损耗</th>
+                                        <th style="text-align: right;">结存</th>
+                                        <th>操作人</th>
+                                        <th>备注</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for record in ledger.records %}
+                                    <tr>
+                                        <td>{{ record.date|date:"Y-m-d" }}</td>
+                                        <td>
+                                            {% if record.type == 'inbound' %}
+                                            <span class="badge badge-success">入库</span>
+                                            {% elif record.type == 'outbound' %}
+                                            <span class="badge badge-danger">出库</span>
+                                            {% elif record.type == 'loss' %}
+                                            <span class="badge badge-warning">损耗</span>
+                                            {% else %}
+                                            <span class="badge badge-info">{{ record.type }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ record.order_no|default:"-" }}</td>
+                                        <td>{{ record.related|default:"-" }}</td>
+                                        <td style="text-align: right;">{{ record.inbound|default:"-" }}</td>
+                                        <td style="text-align: right;">{{ record.outbound|default:"-" }}</td>
+                                        <td style="text-align: right;">{{ record.loss|default:"-" }}</td>
+                                        <td style="text-align: right; font-weight: 600;">{{ record.balance|default:"-" }}</td>
+                                        <td>{{ record.operator|default:"-" }}</td>
+                                        <td>{{ record.remarks|default:"-" }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                            {% else %}
+                            <p style="color: #999; padding: 20px; text-align: center;">暂无流水记录</p>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: #999; padding: 40px; text-align: center;">暂无台账数据</p>
+    {% endif %}
+</div>
+
+<div id="exportModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <div class="card" style="width: 500px; max-width: 90%; margin: auto; position: relative; top: 50%; transform: translateY(-50%);">
+        <h3 class="card-title">📥 导出CSV报表</h3>
+        <form method="post" action="{% url 'production:material_ledger_export' %}">
+            {% csrf_token %}
+            <input type="hidden" name="material" value="{{ material_filter }}">
+            <input type="hidden" name="start_date" value="{{ start_date|default:'' }}">
+            <input type="hidden" name="end_date" value="{{ end_date|default:'' }}">
+            
+            <div class="form-group">
+                <label>报表名称 *</label>
+                <input type="text" name="report_name" required placeholder="请输入报表名称" value="原料台账报表_{% now 'Y-m-d' %}">
+            </div>
+            
+            <div class="form-group">
+                <label>申请人 *</label>
+                <input type="text" name="applicant" required placeholder="请输入申请人姓名">
+            </div>
+            
+            <div class="form-group">
+                <label>导出内容</label>
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 6px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px;">
+                        <input type="checkbox" name="include_summary" checked> 包含汇总统计
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" name="include_details" checked> 包含明细流水
+                    </label>
+                </div>
+            </div>
+            
+            <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-warning" onclick="closeExportModal()">取消</button>
+                <button type="submit" class="btn btn-success">✅ 确认导出</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleDetails(materialId) {
+    const detailsRow = document.getElementById('details-row-' + materialId);
+    const toggleIcon = document.getElementById('toggle-icon-' + materialId);
+    
+    if (detailsRow.style.display === 'none') {
+        detailsRow.style.display = 'table-row';
+        toggleIcon.textContent = '▼';
+    } else {
+        detailsRow.style.display = 'none';
+        toggleIcon.textContent = '▶';
+    }
+}
+
+function openExportModal() {
+    document.getElementById('exportModal').style.display = 'block';
+}
+
+function closeExportModal() {
+    document.getElementById('exportModal').style.display = 'none';
+}
+
+document.getElementById('exportModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeExportModal();
+    }
+});
+</script>
+{% endblock %}

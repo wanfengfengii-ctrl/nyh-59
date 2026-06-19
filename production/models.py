@@ -629,3 +629,414 @@ class AbnormalClosure(models.Model):
         if self.abnormal.discover_date and self.closed_at:
             return (self.closed_at.date() - self.abnormal.discover_date).days
         return None
+
+
+MATERIAL_UNIT_CHOICES = [
+    ('kg', '千克(kg)'),
+    ('ton', '吨(t)'),
+    ('bag', '袋'),
+    ('barrel', '桶'),
+    ('piece', '件'),
+    ('box', '箱'),
+]
+
+STOCK_ALERT_STATUS_CHOICES = [
+    ('normal', '正常'),
+    ('low_stock', '库存不足'),
+    ('overstock', '库存积压'),
+    ('expired', '已过期'),
+    ('near_expiry', '临近过期'),
+]
+
+INBOUND_TYPE_CHOICES = [
+    ('purchase', '采购入库'),
+    ('return', '退货入库'),
+    ('transfer', '调拨入库'),
+    ('other', '其他入库'),
+]
+
+OUTBOUND_TYPE_CHOICES = [
+    ('production', '生产领用'),
+    ('transfer', '调拨出库'),
+    ('scrap', '报废出库'),
+    ('other', '其他出库'),
+]
+
+LOSS_REASON_CHOICES = [
+    ('natural', '自然损耗'),
+    ('breakage', '破损损耗'),
+    ('expired', '过期损耗'),
+    ('theft', '失窃损耗'),
+    ('other', '其他损耗'),
+]
+
+
+class MaterialCategory(models.Model):
+    name = models.CharField('分类名称', max_length=50, unique=True)
+    code = models.CharField('分类编码', max_length=20, unique=True)
+    description = models.TextField('分类描述', blank=True)
+    parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, 
+                               verbose_name='上级分类', related_name='children')
+    sort_order = models.IntegerField('排序', default=0)
+    is_active = models.BooleanField('是否启用', default=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+        verbose_name = '原料分类'
+        verbose_name_plural = '原料分类'
+
+    def __str__(self):
+        return self.name
+
+    def get_full_path(self):
+        path = [self.name]
+        parent = self.parent
+        while parent:
+            path.insert(0, parent.name)
+            parent = parent.parent
+        return ' / '.join(path)
+
+
+class MaterialSupplier(models.Model):
+    name = models.CharField('供应商名称', max_length=100, unique=True)
+    code = models.CharField('供应商编码', max_length=20, unique=True)
+    contact_person = models.CharField('联系人', max_length=50, blank=True)
+    contact_phone = models.CharField('联系电话', max_length=20, blank=True)
+    address = models.CharField('地址', max_length=200, blank=True)
+    email = models.EmailField('邮箱', blank=True)
+    qualification = models.TextField('资质说明', blank=True)
+    is_active = models.BooleanField('是否启用', default=True)
+    remarks = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = '供应商'
+        verbose_name_plural = '供应商'
+
+    def __str__(self):
+        return self.name
+
+
+class Material(models.Model):
+    name = models.CharField('原料名称', max_length=100)
+    code = models.CharField('原料编码', max_length=30, unique=True)
+    category = models.ForeignKey(MaterialCategory, on_delete=models.PROTECT, 
+                                  verbose_name='原料分类', related_name='materials')
+    specification = models.CharField('规格型号', max_length=100, blank=True)
+    unit = models.CharField('计量单位', max_length=20, choices=MATERIAL_UNIT_CHOICES, default='kg')
+    safety_stock = models.FloatField('安全库存', default=0)
+    max_stock = models.FloatField('最大库存', default=0, help_text='0表示不限制')
+    min_stock = models.FloatField('最低库存预警', default=0)
+    expiry_days = models.IntegerField('保质期(天)', default=0, help_text='0表示无保质期限制')
+    description = models.TextField('原料描述', blank=True)
+    storage_condition = models.TextField('存储条件', blank=True)
+    is_active = models.BooleanField('是否启用', default=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['code']
+        verbose_name = '原料档案'
+        verbose_name_plural = '原料档案'
+        unique_together = ['name', 'specification']
+
+    def __str__(self):
+        spec = f'({self.specification})' if self.specification else ''
+        return f'{self.name}{spec}'
+
+    def get_current_stock(self):
+        from django.db.models import Sum
+        inbound = MaterialInbound.objects.filter(material=self).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        outbound = MaterialOutbound.objects.filter(material=self).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        loss = MaterialLoss.objects.filter(material=self).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        return round(inbound - outbound - loss, 2)
+
+    def get_stock_status(self):
+        current_stock = self.get_current_stock()
+        if self.expiry_days > 0:
+            from datetime import timedelta
+            near_expiry_date = date.today() + timedelta(days=30)
+            expired_count = MaterialInbound.objects.filter(
+                material=self, expiry_date__lte=date.today()
+            ).exists()
+            near_expiry_count = MaterialInbound.objects.filter(
+                material=self, expiry_date__gt=date.today(), 
+                expiry_date__lte=near_expiry_date
+            ).exists()
+            if expired_count:
+                return 'expired'
+            if near_expiry_count:
+                return 'near_expiry'
+        if current_stock <= self.min_stock and self.min_stock > 0:
+            return 'low_stock'
+        if self.max_stock > 0 and current_stock >= self.max_stock:
+            return 'overstock'
+        return 'normal'
+
+    def get_stock_status_display(self):
+        status = self.get_stock_status()
+        status_map = dict(STOCK_ALERT_STATUS_CHOICES)
+        return status_map.get(status, '未知')
+
+
+class MaterialInbound(models.Model):
+    inbound_no = models.CharField('入库单号', max_length=30, unique=True)
+    material = models.ForeignKey(Material, on_delete=models.PROTECT, 
+                                  verbose_name='原料', related_name='inbounds')
+    supplier = models.ForeignKey(MaterialSupplier, on_delete=models.PROTECT, 
+                                  verbose_name='供应商', related_name='inbounds')
+    quantity = models.FloatField('入库数量')
+    unit_price = models.FloatField('单价', default=0)
+    total_amount = models.FloatField('总金额', default=0)
+    inbound_type = models.CharField('入库类型', max_length=20, choices=INBOUND_TYPE_CHOICES, default='purchase')
+    batch_no = models.CharField('原料批次号', max_length=50, blank=True)
+    production_date = models.DateField('生产日期', null=True, blank=True)
+    expiry_date = models.DateField('有效期至', null=True, blank=True)
+    inbound_date = models.DateField('入库日期', default=date.today)
+    warehouse = models.CharField('仓库', max_length=50, blank=True)
+    location = models.CharField('库位', max_length=50, blank=True)
+    inspector = models.CharField('验收人', max_length=50, blank=True)
+    operator = models.CharField('经办人', max_length=50)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-inbound_date', '-inbound_no']
+        verbose_name = '原料入库'
+        verbose_name_plural = '原料入库'
+
+    def __str__(self):
+        return f'{self.inbound_no} - {self.material.name}'
+
+    def clean(self):
+        if self.quantity <= 0:
+            raise ValidationError('入库数量必须大于0')
+        if self.unit_price < 0:
+            raise ValidationError('单价不能为负数')
+        if self.inbound_date > date.today():
+            raise ValidationError('入库日期不能晚于当前日期')
+        if self.production_date and self.production_date > date.today():
+            raise ValidationError('生产日期不能晚于当前日期')
+        if self.expiry_date and self.production_date and self.expiry_date < self.production_date:
+            raise ValidationError('有效期不能早于生产日期')
+        if self.expiry_date and self.expiry_date < self.inbound_date:
+            raise ValidationError('有效期不能早于入库日期')
+
+    def save(self, *args, **kwargs):
+        self.total_amount = round(self.quantity * self.unit_price, 2)
+        super().save(*args, **kwargs)
+
+    def get_remaining_quantity(self):
+        used = MaterialOutbound.objects.filter(
+            material=self.material,
+            inbound_ref=self
+        ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        lost = MaterialLoss.objects.filter(
+            material=self.material,
+            inbound_ref=self
+        ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        return round(self.quantity - used - lost, 2)
+
+    def is_expired(self):
+        if not self.expiry_date:
+            return False
+        return self.expiry_date < date.today()
+
+    def is_near_expiry(self, days=30):
+        if not self.expiry_date:
+            return False
+        from datetime import timedelta
+        return date.today() <= self.expiry_date <= (date.today() + timedelta(days=days))
+
+
+class MaterialOutbound(models.Model):
+    outbound_no = models.CharField('出库单号', max_length=30, unique=True)
+    material = models.ForeignKey(Material, on_delete=models.PROTECT, 
+                                  verbose_name='原料', related_name='outbounds')
+    quantity = models.FloatField('出库数量')
+    outbound_type = models.CharField('出库类型', max_length=20, choices=OUTBOUND_TYPE_CHOICES, default='production')
+    outbound_date = models.DateField('出库日期', default=date.today)
+    inbound_ref = models.ForeignKey(MaterialInbound, on_delete=models.PROTECT, 
+                                     verbose_name='入库批次', related_name='outbounds',
+                                     null=True, blank=True)
+    batch = models.ForeignKey(RawMaterialBatch, on_delete=models.SET_NULL, 
+                               verbose_name='生产批次', related_name='material_usages',
+                               null=True, blank=True)
+    warehouse = models.CharField('仓库', max_length=50, blank=True)
+    location = models.CharField('库位', max_length=50, blank=True)
+    receiver = models.CharField('领用人', max_length=50, blank=True)
+    operator = models.CharField('经办人', max_length=50)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-outbound_date', '-outbound_no']
+        verbose_name = '原料出库'
+        verbose_name_plural = '原料出库'
+
+    def __str__(self):
+        return f'{self.outbound_no} - {self.material.name}'
+
+    def clean(self):
+        if self.quantity <= 0:
+            raise ValidationError('出库数量必须大于0')
+        if self.outbound_date > date.today():
+            raise ValidationError('出库日期不能晚于当前日期')
+        
+        if self.inbound_ref:
+            if self.inbound_ref.material != self.material:
+                raise ValidationError('入库批次的原料与出库原料不一致')
+            remaining = self.inbound_ref.get_remaining_quantity()
+            if self.quantity > remaining:
+                raise ValidationError(f'该入库批次剩余数量不足，当前剩余: {remaining} {self.material.get_unit_display()}')
+        else:
+            current_stock = self.material.get_current_stock()
+            if self.quantity > current_stock:
+                raise ValidationError(f'库存不足，当前库存: {current_stock} {self.material.get_unit_display()}')
+
+
+class MaterialLoss(models.Model):
+    loss_no = models.CharField('损耗单号', max_length=30, unique=True)
+    material = models.ForeignKey(Material, on_delete=models.PROTECT, 
+                                  verbose_name='原料', related_name='losses')
+    quantity = models.FloatField('损耗数量')
+    loss_reason = models.CharField('损耗原因', max_length=20, choices=LOSS_REASON_CHOICES, default='natural')
+    loss_date = models.DateField('损耗日期', default=date.today)
+    inbound_ref = models.ForeignKey(MaterialInbound, on_delete=models.PROTECT, 
+                                     verbose_name='入库批次', related_name='losses',
+                                     null=True, blank=True)
+    warehouse = models.CharField('仓库', max_length=50, blank=True)
+    location = models.CharField('库位', max_length=50, blank=True)
+    reported_by = models.CharField('上报人', max_length=50)
+    approved_by = models.CharField('审批人', max_length=50, blank=True)
+    description = models.TextField('损耗说明')
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-loss_date', '-loss_no']
+        verbose_name = '原料损耗'
+        verbose_name_plural = '原料损耗'
+
+    def __str__(self):
+        return f'{self.loss_no} - {self.material.name}'
+
+    def clean(self):
+        if self.quantity <= 0:
+            raise ValidationError('损耗数量必须大于0')
+        if self.loss_date > date.today():
+            raise ValidationError('损耗日期不能晚于当前日期')
+        if self.inbound_ref and self.inbound_ref.material != self.material:
+            raise ValidationError('入库批次的原料与损耗原料不一致')
+
+
+class BatchMaterialUsage(models.Model):
+    batch = models.ForeignKey(RawMaterialBatch, on_delete=models.CASCADE, 
+                               verbose_name='生产批次', related_name='batch_materials')
+    material = models.ForeignKey(Material, on_delete=models.PROTECT, 
+                                  verbose_name='原料', related_name='batch_usages')
+    outbound = models.OneToOneField(MaterialOutbound, on_delete=models.PROTECT, 
+                                     verbose_name='出库记录', related_name='batch_usage')
+    planned_quantity = models.FloatField('计划用量', default=0)
+    actual_quantity = models.FloatField('实际用量')
+    unit = models.CharField('计量单位', max_length=20, choices=MATERIAL_UNIT_CHOICES)
+    usage_stage = models.CharField('使用工序', max_length=20, choices=STAGE_CHOICES, blank=True, null=True)
+    usage_date = models.DateField('使用日期', default=date.today)
+    operator = models.CharField('操作人员', max_length=50)
+    remark = models.TextField('备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        ordering = ['-usage_date']
+        verbose_name = '批次原料使用'
+        verbose_name_plural = '批次原料使用'
+        unique_together = ['batch', 'material', 'outbound']
+
+    def __str__(self):
+        return f'{self.batch.batch_no} - {self.material.name}'
+
+    def clean(self):
+        if self.actual_quantity <= 0:
+            raise ValidationError('实际用量必须大于0')
+        if self.outbound and self.outbound.material != self.material:
+            raise ValidationError('出库记录的原料与使用原料不一致')
+        if self.outbound and self.outbound.batch and self.outbound.batch != self.batch:
+            raise ValidationError('出库记录已关联其他生产批次')
+
+    def save(self, *args, **kwargs):
+        if self.outbound:
+            self.unit = self.outbound.material.unit
+            self.actual_quantity = self.outbound.quantity
+        super().save(*args, **kwargs)
+
+
+class MaterialStockAlert(models.Model):
+    material = models.ForeignKey(Material, on_delete=models.CASCADE, 
+                                  verbose_name='原料', related_name='stock_alerts')
+    alert_type = models.CharField('预警类型', max_length=20, choices=STOCK_ALERT_STATUS_CHOICES)
+    alert_level = models.CharField('预警级别', max_length=20, choices=ALERT_LEVEL_CHOICES, default='warning')
+    alert_title = models.CharField('预警标题', max_length=200)
+    alert_message = models.TextField('预警详情')
+    current_stock = models.FloatField('当前库存', null=True, blank=True)
+    threshold = models.FloatField('阈值', null=True, blank=True)
+    alert_status = models.CharField('预警状态', max_length=20, choices=ALERT_STATUS_CHOICES, default='active')
+    triggered_at = models.DateTimeField('触发时间', default=timezone.now)
+    acknowledged_at = models.DateTimeField('确认时间', null=True, blank=True)
+    resolved_at = models.DateTimeField('解决时间', null=True, blank=True)
+    acknowledged_by = models.CharField('确认人', max_length=50, blank=True)
+    resolved_by = models.CharField('处理人', max_length=50, blank=True)
+    handle_notes = models.TextField('处理备注', blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-triggered_at']
+        verbose_name = '库存预警记录'
+        verbose_name_plural = '库存预警记录'
+
+    def __str__(self):
+        return f'{self.get_alert_type_display()} - {self.material.name}'
+
+    def get_duration(self):
+        if self.resolved_at and self.triggered_at:
+            duration = self.resolved_at - self.triggered_at
+            hours = duration.total_seconds() / 3600
+            return round(hours, 2)
+        return None
+
+
+class MaterialStockHistory(models.Model):
+    material = models.ForeignKey(Material, on_delete=models.PROTECT, 
+                                  verbose_name='原料', related_name='stock_history')
+    record_date = models.DateField('记录日期', default=date.today)
+    opening_stock = models.FloatField('期初库存', default=0)
+    inbound_quantity = models.FloatField('入库数量', default=0)
+    outbound_quantity = models.FloatField('出库数量', default=0)
+    loss_quantity = models.FloatField('损耗数量', default=0)
+    closing_stock = models.FloatField('期末库存', default=0)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        ordering = ['-record_date']
+        verbose_name = '库存收发存记录'
+        verbose_name_plural = '库存收发存记录'
+        unique_together = ['material', 'record_date']
+
+    def __str__(self):
+        return f'{self.material.name} - {self.record_date}'
+
+    def save(self, *args, **kwargs):
+        self.closing_stock = round(
+            self.opening_stock + self.inbound_quantity - self.outbound_quantity - self.loss_quantity, 2
+        )
+        super().save(*args, **kwargs)

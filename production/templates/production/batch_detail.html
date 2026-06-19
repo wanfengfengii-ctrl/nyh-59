@@ -255,6 +255,112 @@
     </div>
 </div>
 
+<div class="card">
+    <h3 class="card-title">🧪 原料使用追溯</h3>
+    {% if material_summary %}
+    <div class="info-grid" style="margin-bottom: 20px;">
+        <div class="info-item">
+            <div class="label">使用原料种类</div>
+            <div class="value">{{ material_summary|length }} 种</div>
+        </div>
+        <div class="info-item">
+            <div class="label">使用记录数</div>
+            <div class="value">{{ material_usages|length }} 次</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料成本总计</div>
+            <div class="value">¥ {{ total_material_cost }}</div>
+        </div>
+    </div>
+
+    <h4 style="font-size: 14px; color: #2c3e50; margin: 20px 0 10px 0;">原料使用汇总</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>原料名称</th>
+                <th>规格</th>
+                <th>总用量</th>
+                <th>单位</th>
+                <th>使用次数</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in material_summary %}
+            <tr>
+                <td>
+                    <a href="{% url 'production:material_detail' item.material.pk %}" style="color: #667eea;">
+                        {{ item.material.name }}
+                    </a>
+                </td>
+                <td>{{ item.material.specification|default:"-" }}</td>
+                <td>{{ item.total_quantity }}</td>
+                <td>{{ item.material.get_unit_display }}</td>
+                <td>{{ item.usage_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h4 style="font-size: 14px; color: #2c3e50; margin: 20px 0 10px 0;">详细使用记录</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>原料名称</th>
+                <th>计划用量</th>
+                <th>实际用量</th>
+                <th>单位</th>
+                <th>使用工序</th>
+                <th>使用日期</th>
+                <th>操作人员</th>
+                <th>出库单号</th>
+                <th>来源追溯</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for usage in material_usages %}
+            <tr>
+                <td>{{ usage.material.name }}</td>
+                <td>{{ usage.planned_quantity|default:"-" }}</td>
+                <td>{{ usage.actual_quantity }}</td>
+                <td>{{ usage.get_unit_display }}</td>
+                <td>
+                    {% if usage.usage_stage %}
+                    <span class="badge badge-info">{{ usage.get_usage_stage_display }}</span>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>{{ usage.usage_date }}</td>
+                <td>{{ usage.operator }}</td>
+                <td>
+                    {% if usage.outbound %}
+                    {{ usage.outbound.outbound_no }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>
+                    {% if usage.outbound and usage.outbound.inbound_ref %}
+                    <span class="badge badge-success">
+                        {{ usage.outbound.inbound_ref.supplier.name }}
+                    </span>
+                    {% else %}
+                    <span class="badge badge-warning">未关联</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; margin-bottom: 15px;">暂无原料使用记录</p>
+    {% endif %}
+    <div style="margin-top: 15px;">
+        <a href="{% url 'production:batch_material_trace' batch.pk %}" class="btn btn-primary">查看完整追溯</a>
+        <a href="{% url 'production:material_outbound_list' %}?batch={{ batch.batch_no }}" class="btn btn-success">添加原料领用</a>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}

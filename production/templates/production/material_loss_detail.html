@@ -1,0 +1,147 @@
+{% extends 'production/base.html' %}
+
+{% block title %}损耗记录详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📉 损耗记录详情</h2>
+
+<div class="card">
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">损耗单号</div>
+            <div class="value">{{ loss.loss_no }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">损耗原因</div>
+            <div class="value">
+                <span class="badge badge-warning">{{ loss.get_loss_reason_display }}</span>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">损耗日期</div>
+            <div class="value">{{ loss.loss_date }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">状态</div>
+            <div class="value">
+                {% if loss.is_active %}
+                <span class="badge badge-success">有效</span>
+                {% else %}
+                <span class="badge badge-danger">已撤销</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">原料信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">原料名称</div>
+            <div class="value">
+                <a href="{% url 'production:material_detail' loss.material.pk %}" style="color: #667eea;">
+                    {{ loss.material.name }}
+                </a>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">规格</div>
+            <div class="value">{{ loss.material.specification|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">单位</div>
+            <div class="value">{{ loss.material.get_unit_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">损耗数量</div>
+            <div class="value" style="color: #e74c3c; font-weight: 600;">
+                {{ loss.quantity }} {{ loss.material.get_unit_display }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">来源信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">关联入库批次</div>
+            <div class="value">
+                {% if loss.inbound_ref %}
+                <a href="{% url 'production:material_inbound_detail' loss.inbound_ref.pk %}" style="color: #667eea;">
+                    {{ loss.inbound_ref.inbound_no }}
+                </a>
+                {% else %}
+                -
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">供应商</div>
+            <div class="value">
+                {% if loss.inbound_ref and loss.inbound_ref.supplier %}
+                {{ loss.inbound_ref.supplier.name }}
+                {% else %}
+                -
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">仓库</div>
+            <div class="value">{{ loss.warehouse|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">库位</div>
+            <div class="value">{{ loss.location|default:"-" }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">人员信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">上报人</div>
+            <div class="value">{{ loss.reported_by|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">审批人</div>
+            <div class="value">{{ loss.approved_by|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">创建时间</div>
+            <div class="value">{{ loss.created_at|date:"Y-m-d H:i:s" }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">损耗说明</h3>
+    <div style="background: #fff3cd; padding: 20px; border-radius: 8px; border-left: 4px solid #ffc107;">
+        {{ loss.description|linebreaks }}
+    </div>
+    
+    {% if loss.remark %}
+    <div style="margin-top: 20px;">
+        <div class="label">备注</div>
+        <div class="value" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 5px;">
+            {{ loss.remark }}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div style="margin-top: 20px; display: flex; gap: 10px;">
+    <a href="{% url 'production:material_loss_list' %}" class="btn btn-primary">← 返回损耗列表</a>
+    {% if loss.is_active %}
+    <form method="post" action="{% url 'production:material_loss_list' %}" style="display: inline;" onsubmit="return confirm('确定要撤销此损耗记录吗？');">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="loss_id" value="{{ loss.pk }}">
+        <button type="submit" class="btn btn-danger">撤销记录</button>
+    </form>
+    {% endif %}
+</div>
+
+{% endblock %}

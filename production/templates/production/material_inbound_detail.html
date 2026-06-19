@@ -1,0 +1,234 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{{ inbound.inbound_no }} - 入库详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📥 入库详情 - {{ inbound.inbound_no }}</h2>
+
+<div class="card">
+    <h3 class="card-title">基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">入库单号</div>
+            <div class="value">{{ inbound.inbound_no }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料</div>
+            <div class="value">{{ inbound.material.name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">供应商</div>
+            <div class="value">{{ inbound.supplier.name|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">入库数量</div>
+            <div class="value">{{ inbound.quantity|floatformat:2 }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">单价</div>
+            <div class="value">¥{{ inbound.unit_price|floatformat:2 }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">总金额</div>
+            <div class="value">¥{{ inbound.total_amount|floatformat:2 }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">入库类型</div>
+            <div class="value">
+                <span class="badge badge-info">{{ inbound.get_inbound_type_display }}</span>
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料批次号</div>
+            <div class="value">{{ inbound.batch_no|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">入库日期</div>
+            <div class="value">{{ inbound.inbound_date }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">生产日期</div>
+            <div class="value">{{ inbound.production_date|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">有效期至</div>
+            <div class="value">
+                {% if inbound.expiry_date %}
+                    {% if inbound.is_expired %}
+                    <span style="color: #e74c3c;">{{ inbound.expiry_date }} (已过期)</span>
+                    {% elif inbound.is_near_expiry %}
+                    <span style="color: #f39c12;">{{ inbound.expiry_date }} (临期)</span>
+                    {% else %}
+                    {{ inbound.expiry_date }}
+                    {% endif %}
+                {% else %}
+                -
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">仓库</div>
+            <div class="value">{{ inbound.warehouse|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">库位</div>
+            <div class="value">{{ inbound.location|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">验收人</div>
+            <div class="value">{{ inbound.inspector|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">经办人</div>
+            <div class="value">{{ inbound.operator|default:"-" }}</div>
+        </div>
+    </div>
+    {% if inbound.remark %}
+    <div style="margin-top: 15px;">
+        <strong>备注：</strong>{{ inbound.remark }}
+    </div>
+    {% endif %}
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value" style="color: #3498db;">{{ inbound.quantity|floatformat:2 }}</div>
+        <div class="stat-label">入库数量</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ remaining|floatformat:2 }}</div>
+        <div class="stat-label">剩余数量</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;" id="usedQuantity"></div>
+        <div class="stat-label">已使用数量</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📤 关联出库记录</h3>
+    {% if outbounds %}
+    <table>
+        <thead>
+            <tr>
+                <th>出库单号</th>
+                <th>原料</th>
+                <th>数量</th>
+                <th>出库类型</th>
+                <th>出库日期</th>
+                <th>领用人</th>
+                <th>经办人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for outbound in outbounds %}
+            <tr>
+                <td><strong>{{ outbound.outbound_no }}</strong></td>
+                <td>{{ outbound.material.name }}</td>
+                <td>{{ outbound.quantity|floatformat:2 }}</td>
+                <td>
+                    <span class="badge badge-info">{{ outbound.get_outbound_type_display }}</span>
+                </td>
+                <td>{{ outbound.outbound_date }}</td>
+                <td>{{ outbound.receiver|default:"-" }}</td>
+                <td>{{ outbound.operator|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:material_outbound_detail' outbound.pk %}" class="btn btn-sm btn-primary">详情</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; padding: 20px; text-align: center;">暂无出库记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📉 关联损耗记录</h3>
+    {% if losses %}
+    <table>
+        <thead>
+            <tr>
+                <th>损耗单号</th>
+                <th>原料</th>
+                <th>数量</th>
+                <th>损耗原因</th>
+                <th>损耗日期</th>
+                <th>上报人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for loss in losses %}
+            <tr>
+                <td><strong>{{ loss.loss_no }}</strong></td>
+                <td>{{ loss.material.name }}</td>
+                <td>{{ loss.quantity|floatformat:2 }}</td>
+                <td>
+                    <span class="badge badge-warning">{{ loss.get_loss_reason_display }}</span>
+                </td>
+                <td>{{ loss.loss_date }}</td>
+                <td>{{ loss.reported_by|default:"-" }}</td>
+                <td>
+                    <a href="{% url 'production:material_loss_detail' loss.pk %}" class="btn btn-sm btn-primary">详情</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; padding: 20px; text-align: center;">暂无损耗记录</p>
+    {% endif %}
+</div>
+
+<div style="margin-top: 20px; display: flex; gap: 10px;">
+    <a href="{% url 'production:material_inbound_list' %}" class="btn btn-warning">返回列表</a>
+    {% if remaining == inbound.quantity %}
+    <button class="btn btn-danger" onclick="deleteInbound({{ inbound.pk }})">删除入库单</button>
+    {% else %}
+    <button class="btn btn-secondary" style="background: #95a5a6; cursor: not-allowed;" disabled title="存在出库或损耗记录，无法删除">删除入库单</button>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const totalQuantity = parseFloat('{{ inbound.quantity }}') || 0;
+    const remainingQuantity = parseFloat('{{ remaining }}') || 0;
+    const usedQuantity = (totalQuantity - remainingQuantity).toFixed(2);
+    document.getElementById('usedQuantity').textContent = usedQuantity;
+});
+
+function deleteInbound(inboundId) {
+    if (!confirm('确定要删除此入库记录吗？删除后将无法恢复。')) return;
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '{% url "production:material_inbound_list" %}';
+    
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'action';
+    actionInput.value = 'delete';
+    form.appendChild(actionInput);
+    
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'inbound_id';
+    idInput.value = inboundId;
+    form.appendChild(idInput);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+{% endblock %}

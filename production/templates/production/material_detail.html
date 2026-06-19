@@ -1,0 +1,375 @@
+{% extends 'production/base.html' %}
+
+{% block title %}{{ material.name }} - 原料详情{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🧪 原料详情 - {{ material.name }}</h2>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ inbound_total|floatformat:2 }}</div>
+        <div class="stat-label">累计入库 ({{ unit_display }})</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ outbound_total|floatformat:2 }}</div>
+        <div class="stat-label">累计出库 ({{ unit_display }})</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ loss_total|floatformat:2 }}</div>
+        <div class="stat-label">累计损耗 ({{ unit_display }})</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ current_stock|floatformat:2 }}</div>
+        <div class="stat-label">当前库存 ({{ unit_display }})</div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">原料名称</div>
+            <div class="value">{{ material.name }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料编码</div>
+            <div class="value">{{ material.code }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">分类</div>
+            <div class="value">{{ material.category.name|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">规格</div>
+            <div class="value">{{ material.specification|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">单位</div>
+            <div class="value">{{ material.get_unit_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">当前库存</div>
+            <div class="value">{{ current_stock|floatformat:2 }} {{ unit_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">库存状态</div>
+            <div class="value">
+                {% if stock_status == 'normal' %}
+                <span class="badge badge-success">{{ stock_status_display }}</span>
+                {% elif stock_status == 'low' %}
+                <span class="badge badge-warning">{{ stock_status_display }}</span>
+                {% elif stock_status == 'shortage' %}
+                <span class="badge badge-danger">{{ stock_status_display }}</span>
+                {% elif stock_status == 'overstock' %}
+                <span class="badge badge-info">{{ stock_status_display }}</span>
+                {% else %}
+                <span class="badge badge-info">{{ stock_status_display }}</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="info-item">
+            <div class="label">安全库存</div>
+            <div class="value">{{ material.safe_stock|floatformat:2|default:"-" }} {{ unit_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">最低预警</div>
+            <div class="value">{{ material.min_stock|floatformat:2|default:"-" }} {{ unit_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">最大库存</div>
+            <div class="value">{{ material.max_stock|floatformat:2|default:"-" }} {{ unit_display }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">保质期</div>
+            <div class="value">{{ material.shelf_life|default:"-" }} 天</div>
+        </div>
+        <div class="info-item">
+            <div class="label">状态</div>
+            <div class="value">
+                {% if material.is_active %}
+                <span class="badge badge-success">启用</span>
+                {% else %}
+                <span class="badge badge-danger">停用</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% if material.storage_condition %}
+    <div style="margin-top: 15px;">
+        <strong>存储条件：</strong>{{ material.storage_condition }}
+    </div>
+    {% endif %}
+    {% if material.description %}
+    <div style="margin-top: 10px;">
+        <strong>描述：</strong>{{ material.description }}
+    </div>
+    {% endif %}
+    <div style="margin-top: 15px; display: flex; gap: 10px;">
+        <a href="{% url 'production:material_inbound_list' %}?material={{ material.pk }}" class="btn btn-success">📥 入库</a>
+        <a href="{% url 'production:material_outbound_list' %}?material={{ material.pk }}" class="btn btn-primary">📤 出库</a>
+        <a href="{% url 'production:material_loss_list' %}?material={{ material.pk }}" class="btn btn-warning">📉 报损</a>
+        <a href="{% url 'production:material_list' %}" class="btn btn-default" style="background: #95a5a6; color: white;">返回列表</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📈 近30天出入库趋势</h3>
+    <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📦 入库批次列表</h3>
+    {% if inbound_batches %}
+    <table>
+        <thead>
+            <tr>
+                <th>批次号</th>
+                <th>入库日期</th>
+                <th>供应商</th>
+                <th>入库数量</th>
+                <th>剩余数量</th>
+                <th>生产日期</th>
+                <th>过期日期</th>
+                <th>状态</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for batch in inbound_batches %}
+            <tr>
+                <td><strong>{{ batch.batch_no }}</strong></td>
+                <td>{{ batch.inbound_date|date:"Y-m-d" }}</td>
+                <td>{{ batch.supplier.name|default:"-" }}</td>
+                <td>{{ batch.quantity|floatformat:2 }}</td>
+                <td style="font-weight: 600;">{{ batch.remaining_quantity|floatformat:2 }}</td>
+                <td>{{ batch.production_date|date:"Y-m-d"|default:"-" }}</td>
+                <td>{{ batch.expiry_date|date:"Y-m-d"|default:"-" }}</td>
+                <td>
+                    {% if batch.is_expired %}
+                    <span class="badge badge-danger">已过期</span>
+                    {% elif batch.is_near_expiry %}
+                    <span class="badge badge-warning">即将过期</span>
+                    {% else %}
+                    <span class="badge badge-success">正常</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color: #999; text-align: center; padding: 20px;">暂无入库批次</p>
+    {% endif %}
+</div>
+
+<div class="tabs">
+    <div class="tab active" onclick="switchTab('outbounds')">📤 最近出库</div>
+    <div class="tab" onclick="switchTab('losses')">📉 损耗记录</div>
+    <div class="tab" onclick="switchTab('usages')">🔄 批次使用</div>
+</div>
+
+<div id="outbounds" class="tab-content active">
+    <div class="card">
+        <h3 class="card-title">最近出库记录</h3>
+        {% if outbounds %}
+        <table>
+            <thead>
+                <tr>
+                    <th>出库单号</th>
+                    <th>出库日期</th>
+                    <th>领用部门</th>
+                    <th>出库数量</th>
+                    <th>用途</th>
+                    <th>操作人</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for outbound in outbounds %}
+                <tr>
+                    <td><strong>{{ outbound.outbound_no }}</strong></td>
+                    <td>{{ outbound.outbound_date|date:"Y-m-d" }}</td>
+                    <td>{{ outbound.department|default:"-" }}</td>
+                    <td style="font-weight: 600; color: #e74c3c;">{{ outbound.quantity|floatformat:2 }}</td>
+                    <td>{{ outbound.purpose|default:"-" }}</td>
+                    <td>{{ outbound.operator|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999; text-align: center; padding: 20px;">暂无出库记录</p>
+        {% endif %}
+    </div>
+</div>
+
+<div id="losses" class="tab-content">
+    <div class="card">
+        <h3 class="card-title">损耗记录</h3>
+        {% if losses %}
+        <table>
+            <thead>
+                <tr>
+                    <th>损耗单号</th>
+                    <th>损耗日期</th>
+                    <th>损耗数量</th>
+                    <th>损耗原因</th>
+                    <th>责任人</th>
+                    <th>状态</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for loss in losses %}
+                <tr>
+                    <td><strong>{{ loss.loss_no }}</strong></td>
+                    <td>{{ loss.loss_date|date:"Y-m-d" }}</td>
+                    <td style="font-weight: 600; color: #e74c3c;">{{ loss.quantity|floatformat:2 }}</td>
+                    <td>{{ loss.get_loss_reason_display|default:loss.loss_reason }}</td>
+                    <td>{{ loss.responsible_person|default:"-" }}</td>
+                    <td>
+                        {% if loss.status == 'pending' %}
+                        <span class="badge badge-warning">待审核</span>
+                        {% elif loss.status == 'approved' %}
+                        <span class="badge badge-success">已审核</span>
+                        {% else %}
+                        <span class="badge badge-danger">已驳回</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999; text-align: center; padding: 20px;">暂无损耗记录</p>
+        {% endif %}
+    </div>
+</div>
+
+<div id="usages" class="tab-content">
+    <div class="card">
+        <h3 class="card-title">批次使用记录</h3>
+        {% if batch_usages %}
+        <table>
+            <thead>
+                <tr>
+                    <th>使用日期</th>
+                    <th>关联批次</th>
+                    <th>使用数量</th>
+                    <th>用途/工序</th>
+                    <th>操作人</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for usage in batch_usages %}
+                <tr>
+                    <td>{{ usage.usage_date|date:"Y-m-d" }}</td>
+                    <td>
+                        {% if usage.inbound_batch %}
+                        <strong>{{ usage.inbound_batch.batch_no }}</strong>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td style="font-weight: 600;">{{ usage.quantity|floatformat:2 }}</td>
+                    <td>{{ usage.purpose|default:usage.stage|default:"-" }}</td>
+                    <td>{{ usage.operator|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999; text-align: center; padding: 20px;">暂无批次使用记录</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const trendData = {{ trend_data|safe }};
+
+const ctx = document.getElementById('trendChart').getContext('2d');
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: trendData.labels,
+        datasets: [
+            {
+                label: '入库量 ({{ unit_display }})',
+                data: trendData.inbound,
+                borderColor: '#27ae60',
+                backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                tension: 0.3,
+                fill: true,
+            },
+            {
+                label: '出库量 ({{ unit_display }})',
+                data: trendData.outbound,
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                fill: true,
+            },
+            {
+                label: '库存量 ({{ unit_display }})',
+                data: trendData.stock,
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                tension: 0.3,
+                fill: true,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: '数量 ({{ unit_display }})'
+                }
+            },
+            x: {
+                title: {
+                    display: true,
+                    text: '日期'
+                }
+            }
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: '近30天出入库趋势图'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': ' + context.raw.toFixed(2) + ' {{ unit_display }}';
+                    }
+                }
+            }
+        }
+    }
+});
+
+function switchTab(tabName) {
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    tabs.forEach(tab => tab.classList.remove('active'));
+    tabContents.forEach(content => content.classList.remove('active'));
+    
+    event.target.classList.add('active');
+    document.getElementById(tabName).classList.add('active');
+}
+</script>
+{% endblock %}

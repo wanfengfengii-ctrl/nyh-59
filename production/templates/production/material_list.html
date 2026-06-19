@@ -1,0 +1,385 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料档案 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🧪 原料档案</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>分类筛选</label>
+        <select id="categoryFilter">
+            <option value="">全部分类</option>
+            {% for cat in categories %}
+            <option value="{{ cat.id }}" {% if category_filter == cat.id|stringformat:"i" %}selected{% endif %}>{{ cat.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>关键词搜索</label>
+        <input type="text" id="keywordFilter" placeholder="输入名称/编码" value="{{ keyword }}">
+    </div>
+    <button class="btn btn-primary" onclick="filterMaterials()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="actions-bar">
+    <button class="btn btn-success" onclick="openModal()">➕ 新增原料</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>编码</th>
+                <th>名称</th>
+                <th>分类</th>
+                <th>规格</th>
+                <th>单位</th>
+                <th>当前库存</th>
+                <th>最低库存</th>
+                <th>库存状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in materials %}
+            <tr>
+                <td><strong>{{ item.material.code }}</strong></td>
+                <td>
+                    <a href="{% url 'production:material_detail' item.material.pk %}" style="color: #667eea; text-decoration: none; font-weight: 600;">
+                        {{ item.material.name }}
+                    </a>
+                </td>
+                <td>{{ item.material.category.name|default:"-" }}</td>
+                <td>{{ item.material.specification|default:"-" }}</td>
+                <td>{{ item.material.get_unit_display }}</td>
+                <td style="font-weight: 600;">{{ item.current_stock|floatformat:2 }}</td>
+                <td>{{ item.material.min_stock|floatformat:2|default:"-" }}</td>
+                <td>
+                    {% if item.stock_status == 'normal' %}
+                    <span class="badge badge-success">{{ item.stock_status_display }}</span>
+                    {% elif item.stock_status == 'low' %}
+                    <span class="badge badge-warning">{{ item.stock_status_display }}</span>
+                    {% elif item.stock_status == 'shortage' %}
+                    <span class="badge badge-danger">{{ item.stock_status_display }}</span>
+                    {% elif item.stock_status == 'overstock' %}
+                    <span class="badge badge-info">{{ item.stock_status_display }}</span>
+                    {% else %}
+                    <span class="badge badge-info">{{ item.stock_status_display }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="editMaterial({{ item.material.pk }})">编辑</button>
+                    {% if item.material.is_active %}
+                    <button class="btn btn-sm btn-danger" onclick="deactivateMaterial({{ item.material.pk }})">停用</button>
+                    {% else %}
+                    <button class="btn btn-sm btn-success" onclick="activateMaterial({{ item.material.pk }})">启用</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: #999; padding: 30px;">
+                    暂无原料数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="materialModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">新增原料</h3>
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+        </div>
+        <form id="materialForm" method="post">
+            {% csrf_token %}
+            <input type="hidden" id="materialId" name="material_id">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>名称 *</label>
+                    <input type="text" id="name" name="name" required placeholder="请输入原料名称">
+                </div>
+                <div class="form-group">
+                    <label>编码 *</label>
+                    <input type="text" id="code" name="code" required placeholder="请输入原料编码">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>分类 *</label>
+                    <select id="category" name="category" required>
+                        <option value="">请选择分类</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}">{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>规格</label>
+                    <input type="text" id="specification" name="specification" placeholder="如：98%、分析纯等">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>单位 *</label>
+                    <select id="unit" name="unit" required>
+                        <option value="">请选择单位</option>
+                        {% for value, label in unit_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>安全库存</label>
+                    <input type="number" id="safe_stock" name="safe_stock" step="0.01" placeholder="安全库存阈值">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>最大库存</label>
+                    <input type="number" id="max_stock" name="max_stock" step="0.01" placeholder="最大库存上限">
+                </div>
+                <div class="form-group">
+                    <label>最低预警</label>
+                    <input type="number" id="min_stock" name="min_stock" step="0.01" placeholder="最低库存预警">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>保质期(天)</label>
+                    <input type="number" id="shelf_life" name="shelf_life" placeholder="保质期天数">
+                </div>
+                <div class="form-group">
+                    <label>存储条件</label>
+                    <input type="text" id="storage_condition" name="storage_condition" placeholder="如：阴凉干燥处">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>描述</label>
+                <textarea id="description" name="description" rows="3" placeholder="原料描述信息"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-warning" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: white;
+    margin: 30px auto;
+    padding: 0;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.modal-close:hover {
+    opacity: 0.8;
+}
+
+#materialForm {
+    padding: 25px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let materialsData = {
+    {% for item in materials %}
+    {{ item.material.pk }}: {
+        name: '{{ item.material.name|escapejs }}',
+        code: '{{ item.material.code|escapejs }}',
+        category: {{ item.material.category.id|default:"null" }},
+        specification: '{{ item.material.specification|default:""|escapejs }}',
+        unit: '{{ item.material.unit|escapejs }}',
+        safe_stock: {{ item.material.safe_stock|default:"null" }},
+        max_stock: {{ item.material.max_stock|default:"null" }},
+        min_stock: {{ item.material.min_stock|default:"null" }},
+        shelf_life: {{ item.material.shelf_life|default:"null" }},
+        description: '{{ item.material.description|default:""|escapejs }}',
+        storage_condition: '{{ item.material.storage_condition|default:""|escapejs }}'
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+};
+
+function filterMaterials() {
+    const category = document.getElementById('categoryFilter').value;
+    const keyword = document.getElementById('keywordFilter').value;
+    
+    let url = '{% url "production:material_list" %}?';
+    if (category) url += 'category=' + encodeURIComponent(category) + '&';
+    if (keyword) url += 'keyword=' + encodeURIComponent(keyword);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_list" %}';
+}
+
+document.getElementById('keywordFilter').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        filterMaterials();
+    }
+});
+
+function openModal() {
+    document.getElementById('modalTitle').textContent = '新增原料';
+    document.getElementById('materialForm').reset();
+    document.getElementById('materialId').value = '';
+    document.getElementById('materialModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+    document.getElementById('materialModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+function editMaterial(materialId) {
+    const material = materialsData[materialId];
+    if (!material) return;
+    
+    document.getElementById('modalTitle').textContent = '编辑原料';
+    document.getElementById('materialId').value = materialId;
+    document.getElementById('name').value = material.name;
+    document.getElementById('code').value = material.code;
+    document.getElementById('category').value = material.category || '';
+    document.getElementById('specification').value = material.specification || '';
+    document.getElementById('unit').value = material.unit;
+    document.getElementById('safe_stock').value = material.safe_stock || '';
+    document.getElementById('max_stock').value = material.max_stock || '';
+    document.getElementById('min_stock').value = material.min_stock || '';
+    document.getElementById('shelf_life').value = material.shelf_life || '';
+    document.getElementById('description').value = material.description || '';
+    document.getElementById('storage_condition').value = material.storage_condition || '';
+    
+    document.getElementById('materialModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function deactivateMaterial(materialId) {
+    if (!confirm('确定要停用此原料吗？停用后将无法选择该原料进行入库操作。')) return;
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '{% url "production:material_toggle_status" 0 %}'.replace('0', materialId);
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function activateMaterial(materialId) {
+    if (!confirm('确定要启用此原料吗？')) return;
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '{% url "production:material_toggle_status" 0 %}'.replace('0', materialId);
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('materialModal');
+    if (event.target === modal) {
+        closeModal();
+    }
+}
+
+document.getElementById('materialForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const materialId = document.getElementById('materialId').value;
+    const url = '{% url "production:material_list" %}';
+    
+    fetch(url, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || '保存成功');
+            window.location.reload();
+        } else {
+            alert('保存失败: ' + (data.error || '未知错误'));
+        }
+    })
+    .catch(error => {
+        alert('保存失败: ' + error);
+    });
+});
+</script>
+{% endblock %}

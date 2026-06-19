@@ -1,0 +1,335 @@
+{% extends 'production/base.html' %}
+
+{% block title %}供应商管理{% endblock %}
+
+{% block content %}
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+    
+    .modal-overlay.active {
+        display: flex;
+    }
+    
+    .modal {
+        background: white;
+        border-radius: 8px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    }
+    
+    .modal-header {
+        padding: 15px 20px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .modal-header h3 {
+        margin: 0;
+        font-size: 18px;
+        color: #2c3e50;
+    }
+    
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #999;
+        padding: 0;
+        line-height: 1;
+    }
+    
+    .modal-close:hover {
+        color: #e74c3c;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .modal-footer {
+        padding: 15px 20px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+</style>
+
+<h2 class="page-title">🏭 供应商管理</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>状态</label>
+        <select id="statusFilter">
+            <option value="">全部状态</option>
+            <option value="active" {% if status_filter == 'active' %}selected{% endif %}>启用</option>
+            <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>停用</option>
+        </select>
+    </div>
+    <button class="btn btn-primary" onclick="filterSuppliers()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="actions-bar">
+    <button class="btn btn-success" onclick="openSupplierModal()">➕ 新增供应商</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>名称</th>
+                <th>编码</th>
+                <th>联系人</th>
+                <th>电话</th>
+                <th>地址</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for supplier in suppliers %}
+            <tr>
+                <td><strong>{{ supplier.name }}</strong></td>
+                <td>{{ supplier.code }}</td>
+                <td>{{ supplier.contact_person|default:"-" }}</td>
+                <td>{{ supplier.phone|default:"-" }}</td>
+                <td>{{ supplier.address|default:"-" }}</td>
+                <td>
+                    {% if supplier.status == 'active' %}
+                    <span class="badge badge-success">启用</span>
+                    {% else %}
+                    <span class="badge badge-danger">停用</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="editSupplier({{ supplier.pk }})">编辑</button>
+                    {% if supplier.status == 'active' %}
+                    <button class="btn btn-sm btn-warning" onclick="toggleStatus({{ supplier.pk }}, 'inactive')">停用</button>
+                    {% else %}
+                    <button class="btn btn-sm btn-success" onclick="toggleStatus({{ supplier.pk }}, 'active')">启用</button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-danger" onclick="deleteSupplier({{ supplier.pk }})">删除</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: #999; padding: 30px;">
+                    暂无供应商数据
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="modal-overlay" id="supplierModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="modalTitle">新增供应商</h3>
+            <button class="modal-close" onclick="closeSupplierModal()">&times;</button>
+        </div>
+        <form id="supplierForm" method="post">
+            {% csrf_token %}
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="id_name">名称</label>
+                        <input type="text" id="id_name" name="name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="id_code">编码</label>
+                        <input type="text" id="id_code" name="code" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="id_contact_person">联系人</label>
+                        <input type="text" id="id_contact_person" name="contact_person">
+                    </div>
+                    <div class="form-group">
+                        <label for="id_phone">电话</label>
+                        <input type="text" id="id_phone" name="phone">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="id_email">邮箱</label>
+                    <input type="email" id="id_email" name="email">
+                </div>
+                <div class="form-group">
+                    <label for="id_address">地址</label>
+                    <input type="text" id="id_address" name="address">
+                </div>
+                <div class="form-group">
+                    <label for="id_qualification">资质</label>
+                    <textarea id="id_qualification" name="qualification" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="id_remarks">备注</label>
+                    <textarea id="id_remarks" name="remarks" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-warning" onclick="closeSupplierModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function filterSuppliers() {
+    const status = document.getElementById('statusFilter').value;
+    let url = '{% url "production:material_supplier_list" %}?';
+    if (status) url += 'status=' + encodeURIComponent(status);
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_supplier_list" %}';
+}
+
+function openSupplierModal() {
+    document.getElementById('modalTitle').textContent = '新增供应商';
+    document.getElementById('supplierForm').reset();
+    document.getElementById('supplierForm').action = '{% url "production:material_supplier_create" %}';
+    document.getElementById('supplierModal').classList.add('active');
+}
+
+function closeSupplierModal() {
+    document.getElementById('supplierModal').classList.remove('active');
+}
+
+function editSupplier(pk) {
+    fetch(`/production/material/supplier/${pk}/get/`, {
+        method: 'GET',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('modalTitle').textContent = '编辑供应商';
+            document.getElementById('id_name').value = data.data.name;
+            document.getElementById('id_code').value = data.data.code;
+            document.getElementById('id_contact_person').value = data.data.contact_person || '';
+            document.getElementById('id_phone').value = data.data.phone || '';
+            document.getElementById('id_email').value = data.data.email || '';
+            document.getElementById('id_address').value = data.data.address || '';
+            document.getElementById('id_qualification').value = data.data.qualification || '';
+            document.getElementById('id_remarks').value = data.data.remarks || '';
+            document.getElementById('supplierForm').action = `/production/material/supplier/${pk}/edit/`;
+            document.getElementById('supplierModal').classList.add('active');
+        } else {
+            alert('获取数据失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('获取数据失败: ' + error);
+    });
+}
+
+function toggleStatus(pk, status) {
+    const action = status === 'active' ? '启用' : '停用';
+    if (!confirm(`确定要${action}此供应商吗？`)) return;
+    
+    fetch(`/production/material/supplier/${pk}/toggle-status/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: status })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('操作失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('操作失败: ' + error);
+    });
+}
+
+function deleteSupplier(pk) {
+    if (!confirm('确定要删除此供应商吗？此操作不可恢复。')) return;
+    
+    fetch(`/production/material/supplier/${pk}/delete/`, {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('删除失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('删除失败: ' + error);
+    });
+}
+
+document.getElementById('supplierForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = e.target;
+    const formData = new FormData(form);
+    
+    fetch(form.action, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeSupplierModal();
+            window.location.reload();
+        } else {
+            alert('保存失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('保存失败: ' + error);
+    });
+});
+
+document.getElementById('supplierModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeSupplierModal();
+    }
+});
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeSupplierModal();
+    }
+});
+</script>
+{% endblock %}

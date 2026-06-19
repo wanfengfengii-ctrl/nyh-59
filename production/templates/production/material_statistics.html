@@ -1,0 +1,335 @@
+{% extends 'production/base.html' %}
+
+{% block title %}统计分析 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📊 原料统计分析</h2>
+
+<div class="filter-bar">
+    <form method="get" style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap; width: 100%;">
+        <div class="form-group" style="margin-bottom: 0; min-width: 200px;">
+            <label>分类</label>
+            <select name="category">
+                <option value="">全部分类</option>
+                {% for cat in categories %}
+                <option value="{{ cat.id }}" {% if category_filter == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 0; min-width: 150px;">
+            <label>开始日期</label>
+            <input type="date" name="start_date" value="{{ start_date|default:'' }}">
+        </div>
+        <div class="form-group" style="margin-bottom: 0; min-width: 150px;">
+            <label>结束日期</label>
+            <input type="date" name="end_date" value="{{ end_date|default:'' }}">
+        </div>
+        <button type="submit" class="btn btn-primary">🔍 查询</button>
+        <a href="{% url 'production:material_statistics' %}" class="btn btn-warning">重置</a>
+    </form>
+</div>
+
+<div class="card">
+    <h3 class="card-title">🧪 原料统计</h3>
+    {% if material_stats %}
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>原料名称</th>
+                    <th>分类</th>
+                    <th style="text-align: right;">本期入库</th>
+                    <th style="text-align: right;">本期出库</th>
+                    <th style="text-align: right;">本期损耗</th>
+                    <th style="text-align: right;">库存金额</th>
+                    <th style="text-align: right;">当前库存</th>
+                    <th style="text-align: right;">使用批次</th>
+                    <th style="text-align: right;">损耗率</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in material_stats %}
+                <tr>
+                    <td><strong>{{ stat.material_name }}</strong></td>
+                    <td>{{ stat.category|default:"-" }}</td>
+                    <td style="text-align: right; color: #27ae60;">{{ stat.inbound|default:0 }}</td>
+                    <td style="text-align: right; color: #e74c3c;">{{ stat.outbound|default:0 }}</td>
+                    <td style="text-align: right; color: #f39c12;">{{ stat.loss|default:0 }}</td>
+                    <td style="text-align: right;">¥{{ stat.stock_value|default:0|floatformat:2 }}</td>
+                    <td style="text-align: right; font-weight: 600;">{{ stat.current_stock|default:0 }}</td>
+                    <td style="text-align: right;">{{ stat.batch_count|default:0 }}</td>
+                    <td style="text-align: right;">
+                        {% with loss_rate=stat.loss_rate|default:0 %}
+                        {% if loss_rate > 5 %}
+                        <span style="color: #e74c3c; font-weight: 600;">{{ loss_rate|floatformat:2 }}%</span>
+                        {% elif loss_rate > 2 %}
+                        <span style="color: #f39c12; font-weight: 600;">{{ loss_rate|floatformat:2 }}%</span>
+                        {% else %}
+                        <span style="color: #27ae60;">{{ loss_rate|floatformat:2 }}%</span>
+                        {% endif %}
+                        {% endwith %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: #999; padding: 40px; text-align: center;">暂无原料统计数据</p>
+    {% endif %}
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">📂 分类统计</h3>
+        {% if category_stats %}
+        <table>
+            <thead>
+                <tr>
+                    <th>分类</th>
+                    <th style="text-align: right;">原料数</th>
+                    <th style="text-align: right;">入库总量</th>
+                    <th style="text-align: right;">出库总量</th>
+                    <th style="text-align: right;">损耗总量</th>
+                    <th style="text-align: right;">库存金额</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in category_stats %}
+                <tr>
+                    <td><strong>{{ stat.category_name }}</strong></td>
+                    <td style="text-align: right;">{{ stat.material_count|default:0 }}</td>
+                    <td style="text-align: right; color: #27ae60;">{{ stat.inbound_total|default:0 }}</td>
+                    <td style="text-align: right; color: #e74c3c;">{{ stat.outbound_total|default:0 }}</td>
+                    <td style="text-align: right; color: #f39c12;">{{ stat.loss_total|default:0 }}</td>
+                    <td style="text-align: right; font-weight: 600;">¥{{ stat.stock_value|default:0|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999; padding: 40px; text-align: center;">暂无分类统计数据</p>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">🏭 供应商采购排行 TOP10</h3>
+        {% if supplier_stats %}
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 40px;">排名</th>
+                    <th>供应商</th>
+                    <th style="text-align: right;">采购次数</th>
+                    <th style="text-align: right;">采购总量</th>
+                    <th style="text-align: right;">采购金额</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in supplier_stats %}
+                <tr>
+                    <td>
+                        {% if forloop.counter <= 3 %}
+                        <span style="font-size: 18px;">{% if forloop.counter == 1 %}🥇{% elif forloop.counter == 2 %}🥈{% else %}🥉{% endif %}</span>
+                        {% else %}
+                        <span style="color: #7f8c8d;">{{ forloop.counter }}</span>
+                        {% endif %}
+                    </td>
+                    <td><strong>{{ stat.supplier_name }}</strong></td>
+                    <td style="text-align: right;">{{ stat.purchase_count|default:0 }}</td>
+                    <td style="text-align: right;">{{ stat.purchase_quantity|default:0 }}</td>
+                    <td style="text-align: right; font-weight: 600; color: #667eea;">¥{{ stat.purchase_amount|default:0|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color: #999; padding: 40px; text-align: center;">暂无供应商采购数据</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📈 近12个月出入库趋势</h3>
+    <div class="chart-container">
+        <canvas id="monthlyTrendChart"></canvas>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div class="card">
+        <h3 class="card-title">📊 分类出入库对比</h3>
+        <div class="chart-container">
+            <canvas id="categoryCompareChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">🥧 供应商采购金额分布</h3>
+        <div class="chart-container">
+            <canvas id="supplierPieChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const monthlyData = {{ monthly_data|default:"[]"|safe }};
+const chartData = {{ chart_data|default:"{}"|safe }};
+
+const monthLabels = monthlyData.map(d => d.month);
+const inboundMonthly = monthlyData.map(d => d.inbound || 0);
+const outboundMonthly = monthlyData.map(d => d.outbound || 0);
+
+const monthlyCtx = document.getElementById('monthlyTrendChart').getContext('2d');
+new Chart(monthlyCtx, {
+    type: 'line',
+    data: {
+        labels: monthLabels,
+        datasets: [
+            {
+                label: '入库量',
+                data: inboundMonthly,
+                borderColor: '#27ae60',
+                backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                tension: 0.3,
+                fill: true,
+            },
+            {
+                label: '出库量',
+                data: outboundMonthly,
+                borderColor: '#e74c3c',
+                backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                tension: 0.3,
+                fill: true,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index',
+            intersect: false,
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: '数量'
+                }
+            },
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: '近12个月出入库趋势图'
+            }
+        }
+    }
+});
+
+const categoryNames = chartData.category_names || [];
+const categoryInbound = chartData.category_inbound || [];
+const categoryOutbound = chartData.category_outbound || [];
+
+const categoryCtx = document.getElementById('categoryCompareChart').getContext('2d');
+new Chart(categoryCtx, {
+    type: 'bar',
+    data: {
+        labels: categoryNames,
+        datasets: [
+            {
+                label: '入库量',
+                data: categoryInbound,
+                backgroundColor: 'rgba(39, 174, 96, 0.7)',
+                borderColor: '#27ae60',
+                borderWidth: 1,
+            },
+            {
+                label: '出库量',
+                data: categoryOutbound,
+                backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                borderColor: '#e74c3c',
+                borderWidth: 1,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                title: {
+                    display: true,
+                    text: '数量'
+                }
+            },
+        },
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: '分类出入库对比图'
+            }
+        }
+    }
+});
+
+const supplierNames = chartData.supplier_names || [];
+const supplierAmounts = chartData.supplier_amounts || [];
+
+const colors = [
+    '#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b',
+    '#fa709a', '#fee140', '#30cfd0', '#a8edea', '#f6d365'
+];
+
+const supplierCtx = document.getElementById('supplierPieChart').getContext('2d');
+new Chart(supplierCtx, {
+    type: 'doughnut',
+    data: {
+        labels: supplierNames,
+        datasets: [{
+            data: supplierAmounts,
+            backgroundColor: colors.slice(0, supplierNames.length),
+            borderWidth: 2,
+            borderColor: '#ffffff',
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'right',
+                labels: {
+                    boxWidth: 12,
+                    padding: 10,
+                }
+            },
+            title: {
+                display: true,
+                text: '供应商采购金额分布图'
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = ((context.raw / total) * 100).toFixed(1);
+                        return context.label + ': ¥' + context.raw.toFixed(2) + ' (' + percentage + '%)';
+                    }
+                }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

@@ -461,6 +461,19 @@
                 <li><a href="{% url 'production:parameter_recommendation' %}" class="{% if 'parameter' in request.resolver_match.url_name %}active{% endif %}">💡 参数推荐</a></li>
                 <li><a href="{% url 'production:abnormal_closure_list' %}" class="{% if 'closure' in request.resolver_match.url_name %}active{% endif %}">🔒 异常闭环</a></li>
                 <li><a href="{% url 'production:export_list' %}" class="{% if 'export' in request.resolver_match.url_name %}active{% endif %}">📥 报表导出</a></li>
+                <li style="border-top: 1px solid #34495e; margin-top: 10px; padding-top: 10px;">
+                    <strong style="color: #667eea; padding: 0 25px; display: block; margin-bottom: 5px;">原料库存管理</strong>
+                </li>
+                <li><a href="{% url 'production:material_stock_dashboard' %}" class="{% if request.resolver_match.url_name == 'material_stock_dashboard' %}active{% endif %}">📦 库存概览</a></li>
+                <li><a href="{% url 'production:material_category_list' %}" class="{% if 'category' in request.resolver_match.url_name %}active{% endif %}">📂 原料分类</a></li>
+                <li><a href="{% url 'production:material_supplier_list' %}" class="{% if 'supplier' in request.resolver_match.url_name %}active{% endif %}">🏭 供应商</a></li>
+                <li><a href="{% url 'production:material_list' %}" class="{% if request.resolver_match.url_name in 'material_list,material_detail' %}active{% endif %}">🧪 原料档案</a></li>
+                <li><a href="{% url 'production:material_inbound_list' %}" class="{% if 'inbound' in request.resolver_match.url_name %}active{% endif %}">📥 原料入库</a></li>
+                <li><a href="{% url 'production:material_outbound_list' %}" class="{% if 'outbound' in request.resolver_match.url_name %}active{% endif %}">📤 原料出库</a></li>
+                <li><a href="{% url 'production:material_loss_list' %}" class="{% if 'loss' in request.resolver_match.url_name %}active{% endif %}">📉 原料损耗</a></li>
+                <li><a href="{% url 'production:material_ledger' %}" class="{% if 'ledger' in request.resolver_match.url_name %}active{% endif %}">📒 原料台账</a></li>
+                <li><a href="{% url 'production:material_statistics' %}" class="{% if 'statistics' in request.resolver_match.url_name %}active{% endif %}">📊 统计分析</a></li>
+                <li><a href="{% url 'production:material_stock_alert_list' %}" class="{% if 'stock_alert' in request.resolver_match.url_name %}active{% endif %}">🚨 库存预警</a></li>
                 <li><a href="/admin/" target="_blank">🔧 管理后台</a></li>
             </ul>
         </div>

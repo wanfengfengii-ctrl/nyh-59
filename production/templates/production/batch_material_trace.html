@@ -1,0 +1,250 @@
+{% extends 'production/base.html' %}
+
+{% block title %}批次原料追溯 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🔍 批次原料追溯 - {{ batch.batch_no }}</h2>
+
+<div class="card">
+    <h3 class="card-title">📦 批次基本信息</h3>
+    <div class="info-grid">
+        <div class="info-item">
+            <div class="label">批次编号</div>
+            <div class="value">{{ batch.batch_no }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料来源</div>
+            <div class="value">{{ batch.material_source|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">原料重量</div>
+            <div class="value">{{ batch.material_weight|default:0 }} kg</div>
+        </div>
+        <div class="info-item">
+            <div class="label">开始日期</div>
+            <div class="value">{{ batch.start_date|date:"Y-m-d" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">操作人员</div>
+            <div class="value">{{ batch.operator|default:"-" }}</div>
+        </div>
+        <div class="info-item">
+            <div class="label">当前状态</div>
+            <div class="value">
+                {% if batch.status == 'completed' %}
+                <span class="badge badge-success">已完成</span>
+                {% elif batch.status == 'in_progress' %}
+                <span class="badge badge-warning">进行中</span>
+                {% else %}
+                <span class="badge badge-info">{{ batch.get_status_display|default:"待处理" }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% if batch.remarks %}
+    <div style="margin-top: 15px;">
+        <strong>备注：</strong>{{ batch.remarks }}
+    </div>
+    {% endif %}
+    <div style="margin-top: 15px;">
+        <a href="{% url 'production:batch_detail' batch.pk %}" class="btn btn-primary">← 返回批次详情</a>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">💎 原料成本统计</h3>
+    <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+        <div class="stat-card">
+            <div class="stat-value">{{ usage_summary|length }}</div>
+            <div class="stat-label">使用原料种类</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: #27ae60;">{{ material_usages|length }}</div>
+            <div class="stat-label">使用记录数</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: #667eea;">¥{{ total_material_cost|default:0|floatformat:2 }}</div>
+            <div class="stat-label">原料成本总计</div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h3 class="card-title">📊 原料使用汇总</h3>
+    {% if usage_summary %}
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>原料名称</th>
+                    <th>分类</th>
+                    <th>单位</th>
+                    <th style="text-align: right;">计划总用量</th>
+                    <th style="text-align: right;">实际总用量</th>
+                    <th style="text-align: right;">使用次数</th>
+                    <th style="text-align: right;">成本金额</th>
+                    <th style="text-align: right;">损耗率</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for summary in usage_summary %}
+                <tr>
+                    <td><strong>{{ summary.material_name }}</strong></td>
+                    <td>{{ summary.category|default:"-" }}</td>
+                    <td>{{ summary.unit|default:"-" }}</td>
+                    <td style="text-align: right;">{{ summary.planned_total|default:0 }}</td>
+                    <td style="text-align: right; color: #27ae60; font-weight: 600;">{{ summary.actual_total|default:0 }}</td>
+                    <td style="text-align: right;">{{ summary.usage_count|default:0 }}</td>
+                    <td style="text-align: right;">¥{{ summary.cost|default:0|floatformat:2 }}</td>
+                    <td style="text-align: right;">
+                        {% with loss_rate=summary.loss_rate|default:0 %}
+                        {% if loss_rate > 5 %}
+                        <span style="color: #e74c3c; font-weight: 600;">{{ loss_rate|floatformat:2 }}%</span>
+                        {% elif loss_rate > 2 %}
+                        <span style="color: #f39c12; font-weight: 600;">{{ loss_rate|floatformat:2 }}%</span>
+                        {% else %}
+                        <span style="color: #27ae60;">{{ loss_rate|floatformat:2 }}%</span>
+                        {% endif %}
+                        {% endwith %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: #999; padding: 40px; text-align: center;">暂无原料使用汇总数据</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">📋 原料使用明细记录</h3>
+    {% if material_usages %}
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>原料名称</th>
+                    <th style="text-align: right;">计划用量</th>
+                    <th style="text-align: right;">实际用量</th>
+                    <th>单位</th>
+                    <th>使用工序</th>
+                    <th>使用日期</th>
+                    <th>操作人员</th>
+                    <th>出库单号</th>
+                    <th>入库批次</th>
+                    <th>供应商</th>
+                    <th style="text-align: right;">单价</th>
+                    <th style="text-align: right;">金额</th>
+                    <th>备注</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for usage in material_usages %}
+                <tr>
+                    <td><strong>{{ usage.material_name }}</strong></td>
+                    <td style="text-align: right;">{{ usage.planned_quantity|default:0 }}</td>
+                    <td style="text-align: right; color: #27ae60; font-weight: 600;">{{ usage.actual_quantity|default:0 }}</td>
+                    <td>{{ usage.unit|default:"-" }}</td>
+                    <td>{{ usage.process_stage|default:"-" }}</td>
+                    <td>{{ usage.usage_date|date:"Y-m-d" }}</td>
+                    <td>{{ usage.operator|default:"-" }}</td>
+                    <td>
+                        {% if usage.outbound_no %}
+                        <span class="badge badge-info">{{ usage.outbound_no }}</span>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if usage.inbound_batch %}
+                        <span class="badge badge-success">{{ usage.inbound_batch }}</span>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if usage.supplier_name %}
+                        <span style="color: #667eea;">{{ usage.supplier_name }}</span>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td style="text-align: right;">¥{{ usage.unit_price|default:0|floatformat:2 }}</td>
+                    <td style="text-align: right; font-weight: 600;">¥{{ usage.amount|default:0|floatformat:2 }}</td>
+                    <td>{{ usage.remarks|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color: #999; padding: 40px; text-align: center;">暂无原料使用记录</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 class="card-title">🔗 来源追溯关系图</h3>
+    {% if material_usages %}
+    <div style="padding: 20px; background: #f8f9fa; border-radius: 6px;">
+        <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 20px;">
+            <div style="text-align: center;">
+                <div style="background: #667eea; color: white; padding: 15px 25px; border-radius: 8px; font-weight: 600;">
+                    🏭 供应商
+                </div>
+                <div style="margin-top: 10px; font-size: 13px; color: #7f8c8d;">
+                    {% for supplier in material_usages|dictsort:"supplier_name" %}
+                        {% if supplier.supplier_name %}
+                        <div>{{ supplier.supplier_name }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="font-size: 24px; color: #999;">→</div>
+            <div style="text-align: center;">
+                <div style="background: #27ae60; color: white; padding: 15px 25px; border-radius: 8px; font-weight: 600;">
+                    📥 原料入库
+                </div>
+                <div style="margin-top: 10px; font-size: 13px; color: #7f8c8d;">
+                    {% for usage in material_usages|dictsort:"inbound_batch" %}
+                        {% if usage.inbound_batch and not forloop.parentloop.counter == forloop.counter %}
+                        <div>{{ usage.inbound_batch }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="font-size: 24px; color: #999;">→</div>
+            <div style="text-align: center;">
+                <div style="background: #e74c3c; color: white; padding: 15px 25px; border-radius: 8px; font-weight: 600;">
+                    📤 原料出库
+                </div>
+                <div style="margin-top: 10px; font-size: 13px; color: #7f8c8d;">
+                    {% for usage in material_usages %}
+                        {% if usage.outbound_no %}
+                        <div>{{ usage.outbound_no }}</div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="font-size: 24px; color: #999;">→</div>
+            <div style="text-align: center;">
+                <div style="background: #f39c12; color: white; padding: 15px 25px; border-radius: 8px; font-weight: 600;">
+                    📦 生产批次
+                </div>
+                <div style="margin-top: 10px; font-size: 13px; color: #7f8c8d;">
+                    <div>{{ batch.batch_no }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <p style="color: #999; padding: 40px; text-align: center;">暂无追溯数据</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+console.log('批次原料追溯页面加载完成');
+</script>
+{% endblock %}

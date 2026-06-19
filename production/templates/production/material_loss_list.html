@@ -1,0 +1,338 @@
+{% extends 'production/base.html' %}
+
+{% block title %}原料损耗 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">📉 原料损耗</h2>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>原料</label>
+        <select id="materialFilter">
+            <option value="">全部原料</option>
+            {% for mat in materials %}
+            <option value="{{ mat.id }}" {% if material_filter == mat.id|stringformat:"i" %}selected{% endif %}>{{ mat.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>损耗原因</label>
+        <select id="reasonFilter">
+            <option value="">全部原因</option>
+            {% for value, label in loss_reason_choices %}
+            <option value="{{ value }}" {% if reason_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>开始日期</label>
+        <input type="date" id="startDate" value="{{ start_date|default:'' }}">
+    </div>
+    <div class="form-group">
+        <label>结束日期</label>
+        <input type="date" id="endDate" value="{{ end_date|default:'' }}">
+    </div>
+    <button class="btn btn-primary" onclick="filterLosses()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="stats-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total_count }}</div>
+        <div class="stat-label">总记录数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ stats.total_quantity|floatformat:2 }}</div>
+        <div class="stat-label">总损耗数量</div>
+    </div>
+</div>
+
+<div class="actions-bar">
+    <button class="btn btn-success" onclick="openLossModal()">➕ 新增损耗</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>单号</th>
+                <th>原料</th>
+                <th>数量</th>
+                <th>损耗原因</th>
+                <th>损耗日期</th>
+                <th>上报人</th>
+                <th>审批人</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for loss in losses %}
+            <tr>
+                <td><strong>{{ loss.loss_no }}</strong></td>
+                <td>{{ loss.material.name|default:"-" }}</td>
+                <td style="color: #e74c3c; font-weight: 600;">{{ loss.quantity|floatformat:2 }}</td>
+                <td>{{ loss.get_loss_reason_display }}</td>
+                <td>{{ loss.loss_date|date:"Y-m-d" }}</td>
+                <td>{{ loss.reporter|default:"-" }}</td>
+                <td>{{ loss.approver|default:"-" }}</td>
+                <td>
+                    <button class="btn btn-sm btn-danger" onclick="deleteLoss({{ loss.pk }})">删除</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: #999; padding: 30px;">
+                    暂无损耗记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="lossModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>新增原料损耗</h3>
+            <span class="modal-close" onclick="closeLossModal()">&times;</span>
+        </div>
+        <form id="lossForm" method="post">
+            {% csrf_token %}
+            <div class="form-row">
+                <div class="form-group">
+                    <label>原料 *</label>
+                    <select id="material" name="material" required>
+                        <option value="">请选择原料</option>
+                        {% for mat in materials %}
+                        <option value="{{ mat.id }}">{{ mat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>数量 *</label>
+                    <input type="number" id="quantity" name="quantity" step="0.01" required placeholder="请输入损耗数量">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>损耗原因 *</label>
+                    <select id="loss_reason" name="loss_reason" required>
+                        <option value="">请选择损耗原因</option>
+                        {% for value, label in loss_reason_choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>关联入库批次</label>
+                    <select id="inbound_batch" name="inbound_batch">
+                        <option value="">无</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>损耗日期 *</label>
+                    <input type="date" id="loss_date" name="loss_date" required>
+                </div>
+                <div class="form-group">
+                    <label>仓库</label>
+                    <input type="text" id="warehouse" name="warehouse" placeholder="如：原料仓库">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>库位</label>
+                    <input type="text" id="location" name="location" placeholder="如：A区-01">
+                </div>
+                <div class="form-group">
+                    <label>上报人 *</label>
+                    <input type="text" id="reporter" name="reporter" required placeholder="请输入上报人姓名">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>审批人</label>
+                <input type="text" id="approver" name="approver" placeholder="请输入审批人姓名">
+            </div>
+            <div class="form-group">
+                <label>损耗说明</label>
+                <textarea id="description" name="description" rows="3" placeholder="请详细描述损耗情况..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>备注</label>
+                <textarea id="remark" name="remark" rows="2" placeholder="其他备注信息"></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-warning" onclick="closeLossModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: white;
+    margin: 30px auto;
+    padding: 0;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.modal-close:hover {
+    opacity: 0.8;
+}
+
+#lossForm {
+    padding: 25px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterLosses() {
+    const material = document.getElementById('materialFilter').value;
+    const reason = document.getElementById('reasonFilter').value;
+    const start = document.getElementById('startDate').value;
+    const end = document.getElementById('endDate').value;
+    
+    let url = '{% url "production:material_loss_list" %}?';
+    if (material) url += 'material=' + encodeURIComponent(material) + '&';
+    if (reason) url += 'reason=' + encodeURIComponent(reason) + '&';
+    if (start) url += 'start_date=' + encodeURIComponent(start) + '&';
+    if (end) url += 'end_date=' + encodeURIComponent(end);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_loss_list" %}';
+}
+
+function openLossModal() {
+    document.getElementById('lossForm').reset();
+    document.getElementById('lossModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeLossModal() {
+    document.getElementById('lossModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+function deleteLoss(lossId) {
+    if (!confirm('确定要删除这条损耗记录吗？此操作不可恢复。')) return;
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '{% url "production:material_loss_list" %}';
+    
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+    
+    const actionInput = document.createElement('input');
+    actionInput.type = 'hidden';
+    actionInput.name = 'action';
+    actionInput.value = 'delete';
+    form.appendChild(actionInput);
+    
+    const idInput = document.createElement('input');
+    idInput.type = 'hidden';
+    idInput.name = 'loss_id';
+    idInput.value = lossId;
+    form.appendChild(idInput);
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('lossModal');
+    if (event.target === modal) {
+        closeLossModal();
+    }
+}
+
+document.getElementById('lossForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    
+    fetch('{% url "production:material_loss_list" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || '保存成功');
+            window.location.reload();
+        } else {
+            alert('保存失败: ' + (data.error || '未知错误'));
+        }
+    })
+    .catch(error => {
+        alert('保存失败: ' + error);
+    });
+});
+</script>
+{% endblock %}

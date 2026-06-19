@@ -1,6 +1,6 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
-from django.db.models import Avg, Count, Q, F, ExpressionWrapper, FloatField
+from django.db.models import Sum, Avg, Count, Q, F, ExpressionWrapper, FloatField
 from django.utils import timezone
 from django.http import JsonResponse, HttpResponse
 from datetime import datetime, timedelta
@@ -8,6 +8,7 @@ from django.db import transaction
 import csv
 import io
 import json
+import codecs
 from .models import (
     RawMaterialBatch, ProcessStage, InspectionRecord,
     CrystallizationResult, AbnormalDisposal,
@@ -15,7 +16,12 @@ from .models import (
     AlertRule, AlertRecord, StageAudit, ParameterRecommendation,
     ExportRecord, MaterialQualityStats, AbnormalClosure,
     ALERT_LEVEL_CHOICES, ALERT_STATUS_CHOICES, ALERT_TYPE_CHOICES,
-    AUDIT_STATUS_CHOICES, EXPORT_TYPE_CHOICES, EXPORT_STATUS_CHOICES
+    AUDIT_STATUS_CHOICES, EXPORT_TYPE_CHOICES, EXPORT_STATUS_CHOICES,
+    MaterialCategory, MaterialSupplier, Material, MaterialInbound,
+    MaterialOutbound, MaterialLoss, BatchMaterialUsage,
+    MaterialStockAlert, MaterialStockHistory,
+    MATERIAL_UNIT_CHOICES, STOCK_ALERT_STATUS_CHOICES,
+    INBOUND_TYPE_CHOICES, OUTBOUND_TYPE_CHOICES, LOSS_REASON_CHOICES
 )
 
 
@@ -387,6 +393,25 @@ def batch_detail(request, pk):
         status='completed'
     ).exists()
     
+    material_usages = batch.batch_materials.all().order_by('-usage_date')
+    
+    material_summary = {}
+    total_material_cost = 0
+    for usage in material_usages:
+        mat_id = usage.material_id
+        if mat_id not in material_summary:
+            material_summary[mat_id] = {
+                'material': usage.material,
+                'total_quantity': 0,
+                'usage_count': 0,
+                'unit': usage.unit,
+            }
+        material_summary[mat_id]['total_quantity'] += usage.actual_quantity
+        material_summary[mat_id]['usage_count'] += 1
+        
+        if usage.outbound and usage.outbound.inbound_ref:
+            total_material_cost += usage.actual_quantity * usage.outbound.inbound_ref.unit_price
+    
     context = {
         'batch': batch,
         'stages': stages,
@@ -397,6 +422,9 @@ def batch_detail(request, pk):
         'timeline_data': timeline_data,
         'stage_choices': STAGE_CHOICES,
         'evaporation_completed': evaporation_completed,
+        'material_usages': material_usages,
+        'material_summary': list(material_summary.values()),
+        'total_material_cost': round(total_material_cost, 2),
     }
     return render(request, 'production/batch_detail.html', context)
 
@@ -2039,3 +2067,1714 @@ def visual_dashboard(request):
         'process_efficiency': process_efficiency,
     }
     return render(request, 'production/visual_dashboard.html', context)
+
+
+def generate_inbound_no():
+    today = date.today().strftime('%Y%m%d')
+    count = MaterialInbound.objects.filter(inbound_no__startswith=f'RK{today}').count()
+    return f'RK{today}{count + 1:04d}'
+
+
+def generate_outbound_no():
+    today = date.today().strftime('%Y%m%d')
+    count = MaterialOutbound.objects.filter(outbound_no__startswith=f'CK{today}').count()
+    return f'CK{today}{count + 1:04d}'
+
+
+def generate_loss_no():
+    today = date.today().strftime('%Y%m%d')
+    count = MaterialLoss.objects.filter(loss_no__startswith=f'SH{today}').count()
+    return f'SH{today}{count + 1:04d}'
+
+
+def check_stock_alerts():
+    new_alerts = []
+    materials = Material.objects.filter(is_active=True)
+    
+    for material in materials:
+        status = material.get_stock_status()
+        if status == 'normal':
+            continue
+            
+        current_stock = material.get_current_stock()
+        alert_type = status
+        alert_level = 'warning'
+        threshold = None
+        title = ''
+        message = ''
+        
+        if status == 'low_stock':
+            threshold = material.min_stock
+            alert_level = 'danger' if current_stock < threshold * 0.5 else 'warning'
+            title = f'{material.name} 库存不足'
+            message = f'原料 {material.name} 当前库存为 {current_stock} {material.get_unit_display()}，低于预警阈值 {threshold} {material.get_unit_display()}，请及时补充。'
+        elif status == 'overstock':
+            threshold = material.max_stock
+            alert_level = 'info'
+            title = f'{material.name} 库存积压'
+            message = f'原料 {material.name} 当前库存为 {current_stock} {material.get_unit_display()}，超过最大库存 {threshold} {material.get_unit_display()}，请注意控制采购量。'
+        elif status == 'expired':
+            alert_level = 'danger'
+            title = f'{material.name} 已过期'
+            message = f'原料 {material.name} 存在已过期的入库批次，请及时处理。'
+        elif status == 'near_expiry':
+            alert_level = 'warning'
+            title = f'{material.name} 临近过期'
+            message = f'原料 {material.name} 存在30天内即将过期的入库批次，请尽快安排使用。'
+        
+        existing = MaterialStockAlert.objects.filter(
+            material=material,
+            alert_type=alert_type,
+            alert_status__in=['active', 'acknowledged']
+        ).exists()
+        
+        if not existing:
+            alert = MaterialStockAlert.objects.create(
+                material=material,
+                alert_type=alert_type,
+                alert_level=alert_level,
+                alert_title=title,
+                alert_message=message,
+                current_stock=current_stock,
+                threshold=threshold,
+            )
+            new_alerts.append(alert)
+    
+    return new_alerts
+
+
+def material_stock_dashboard(request):
+    total_materials = Material.objects.filter(is_active=True).count()
+    total_inbound = MaterialInbound.objects.aggregate(total=Sum('quantity'))['total'] or 0
+    total_outbound = MaterialOutbound.objects.aggregate(total=Sum('quantity'))['total'] or 0
+    total_loss = MaterialLoss.objects.aggregate(total=Sum('quantity'))['total'] or 0
+    current_total_stock = round(total_inbound - total_outbound - total_loss, 2)
+    
+    low_stock_count = 0
+    overstock_count = 0
+    expired_count = 0
+    near_expiry_count = 0
+    
+    for material in Material.objects.filter(is_active=True):
+        status = material.get_stock_status()
+        if status == 'low_stock':
+            low_stock_count += 1
+        elif status == 'overstock':
+            overstock_count += 1
+        elif status == 'expired':
+            expired_count += 1
+        elif status == 'near_expiry':
+            near_expiry_count += 1
+    
+    pending_alerts = MaterialStockAlert.objects.filter(alert_status='active').count()
+    
+    today = timezone.now().date()
+    last_30_days = today - timedelta(days=30)
+    
+    recent_inbounds = MaterialInbound.objects.filter(inbound_date__gte=last_30_days).count()
+    recent_outbounds = MaterialOutbound.objects.filter(outbound_date__gte=last_30_days).count()
+    
+    category_stats = []
+    for category in MaterialCategory.objects.filter(is_active=True):
+        cat_materials = category.materials.filter(is_active=True)
+        total_cat_stock = sum(m.get_current_stock() for m in cat_materials)
+        category_stats.append({
+            'category': category,
+            'material_count': cat_materials.count(),
+            'total_stock': round(total_cat_stock, 2),
+        })
+    
+    recent_inbound_list = MaterialInbound.objects.all()[:10]
+    recent_outbound_list = MaterialOutbound.objects.all()[:10]
+    recent_alerts = MaterialStockAlert.objects.all()[:10]
+    
+    stock_trend_data = []
+    for i in range(6, -1, -1):
+        date_i = today - timedelta(days=i)
+        day_inbound = MaterialInbound.objects.filter(inbound_date=date_i).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        day_outbound = MaterialOutbound.objects.filter(outbound_date=date_i).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        day_loss = MaterialLoss.objects.filter(loss_date=date_i).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        stock_trend_data.append({
+            'date': date_i.strftime('%m-%d'),
+            'inbound': round(day_inbound, 2),
+            'outbound': round(day_outbound, 2),
+            'net': round(day_inbound - day_outbound - day_loss, 2),
+        })
+    
+    context = {
+        'total_materials': total_materials,
+        'current_total_stock': current_total_stock,
+        'low_stock_count': low_stock_count,
+        'overstock_count': overstock_count,
+        'expired_count': expired_count,
+        'near_expiry_count': near_expiry_count,
+        'pending_alerts': pending_alerts,
+        'recent_inbounds': recent_inbounds,
+        'recent_outbounds': recent_outbounds,
+        'category_stats': category_stats,
+        'recent_inbound_list': recent_inbound_list,
+        'recent_outbound_list': recent_outbound_list,
+        'recent_alerts': recent_alerts,
+        'stock_trend_data': stock_trend_data,
+    }
+    return render(request, 'production/material_stock_dashboard.html', context)
+
+
+def material_category_list(request):
+    categories = MaterialCategory.objects.all()
+    
+    parent_filter = request.GET.get('parent', '')
+    if parent_filter:
+        if parent_filter == 'root':
+            categories = categories.filter(parent__isnull=True)
+        else:
+            categories = categories.filter(parent_id=parent_filter)
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            code = request.POST.get('code', '').strip()
+            parent_id = request.POST.get('parent_id', '')
+            description = request.POST.get('description', '').strip()
+            sort_order = request.POST.get('sort_order', '0')
+            
+            errors = []
+            if not name:
+                errors.append('请输入分类名称')
+            if not code:
+                errors.append('请输入分类编码')
+            if MaterialCategory.objects.filter(name=name).exists():
+                errors.append('分类名称已存在')
+            if MaterialCategory.objects.filter(code=code).exists():
+                errors.append('分类编码已存在')
+            
+            if errors:
+                for error in errors:
+                    messages.error(request, error)
+            else:
+                parent = None
+                if parent_id:
+                    try:
+                        parent = MaterialCategory.objects.get(pk=parent_id)
+                    except MaterialCategory.DoesNotExist:
+                        pass
+                
+                try:
+                    MaterialCategory.objects.create(
+                        name=name,
+                        code=code,
+                        parent=parent,
+                        description=description,
+                        sort_order=int(sort_order) if sort_order else 0,
+                    )
+                    messages.success(request, f'分类 {name} 创建成功')
+                except Exception as e:
+                    messages.error(request, f'创建失败: {str(e)}')
+            
+            return redirect('production:material_category_list')
+        
+        elif action == 'edit':
+            category_id = request.POST.get('category_id', '')
+            if category_id:
+                category = get_object_or_404(MaterialCategory, pk=category_id)
+                category.name = request.POST.get('name', category.name).strip()
+                category.code = request.POST.get('code', category.code).strip()
+                category.description = request.POST.get('description', category.description).strip()
+                category.sort_order = int(request.POST.get('sort_order', category.sort_order))
+                
+                parent_id = request.POST.get('parent_id', '')
+                if parent_id:
+                    try:
+                        category.parent = MaterialCategory.objects.get(pk=parent_id)
+                    except MaterialCategory.DoesNotExist:
+                        category.parent = None
+                else:
+                    category.parent = None
+                
+                category.save()
+                messages.success(request, f'分类 {category.name} 更新成功')
+                return redirect('production:material_category_list')
+        
+        elif action == 'toggle':
+            category_id = request.POST.get('category_id', '')
+            if category_id:
+                category = get_object_or_404(MaterialCategory, pk=category_id)
+                category.is_active = not category.is_active
+                category.save()
+                return JsonResponse({'success': True, 'is_active': category.is_active})
+        
+        elif action == 'delete':
+            category_id = request.POST.get('category_id', '')
+            if category_id:
+                category = get_object_or_404(MaterialCategory, pk=category_id)
+                if category.materials.exists():
+                    messages.error(request, '该分类下存在原料，无法删除')
+                elif category.children.exists():
+                    messages.error(request, '该分类下存在子分类，无法删除')
+                else:
+                    category.delete()
+                    messages.success(request, '分类删除成功')
+                return redirect('production:material_category_list')
+    
+    context = {
+        'categories': categories,
+        'parent_filter': parent_filter,
+        'all_categories': MaterialCategory.objects.filter(is_active=True),
+    }
+    return render(request, 'production/material_category_list.html', context)
+
+
+def material_supplier_list(request):
+    suppliers = MaterialSupplier.objects.all()
+    
+    status_filter = request.GET.get('status', '')
+    if status_filter == 'active':
+        suppliers = suppliers.filter(is_active=True)
+    elif status_filter == 'inactive':
+        suppliers = suppliers.filter(is_active=False)
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            code = request.POST.get('code', '').strip()
+            contact_person = request.POST.get('contact_person', '').strip()
+            contact_phone = request.POST.get('contact_phone', '').strip()
+            address = request.POST.get('address', '').strip()
+            email = request.POST.get('email', '').strip()
+            qualification = request.POST.get('qualification', '').strip()
+            remarks = request.POST.get('remarks', '').strip()
+            
+            errors = []
+            if not name:
+                errors.append('请输入供应商名称')
+            if not code:
+                errors.append('请输入供应商编码')
+            if MaterialSupplier.objects.filter(name=name).exists():
+                errors.append('供应商名称已存在')
+            if MaterialSupplier.objects.filter(code=code).exists():
+                errors.append('供应商编码已存在')
+            
+            if errors:
+                for error in errors:
+                    messages.error(request, error)
+            else:
+                try:
+                    MaterialSupplier.objects.create(
+                        name=name,
+                        code=code,
+                        contact_person=contact_person,
+                        contact_phone=contact_phone,
+                        address=address,
+                        email=email,
+                        qualification=qualification,
+                        remarks=remarks,
+                    )
+                    messages.success(request, f'供应商 {name} 创建成功')
+                except Exception as e:
+                    messages.error(request, f'创建失败: {str(e)}')
+            
+            return redirect('production:material_supplier_list')
+        
+        elif action == 'edit':
+            supplier_id = request.POST.get('supplier_id', '')
+            if supplier_id:
+                supplier = get_object_or_404(MaterialSupplier, pk=supplier_id)
+                supplier.name = request.POST.get('name', supplier.name).strip()
+                supplier.code = request.POST.get('code', supplier.code).strip()
+                supplier.contact_person = request.POST.get('contact_person', supplier.contact_person).strip()
+                supplier.contact_phone = request.POST.get('contact_phone', supplier.contact_phone).strip()
+                supplier.address = request.POST.get('address', supplier.address).strip()
+                supplier.email = request.POST.get('email', supplier.email).strip()
+                supplier.qualification = request.POST.get('qualification', supplier.qualification).strip()
+                supplier.remarks = request.POST.get('remarks', supplier.remarks).strip()
+                supplier.save()
+                messages.success(request, f'供应商 {supplier.name} 更新成功')
+                return redirect('production:material_supplier_list')
+        
+        elif action == 'toggle':
+            supplier_id = request.POST.get('supplier_id', '')
+            if supplier_id:
+                supplier = get_object_or_404(MaterialSupplier, pk=supplier_id)
+                supplier.is_active = not supplier.is_active
+                supplier.save()
+                return JsonResponse({'success': True, 'is_active': supplier.is_active})
+        
+        elif action == 'delete':
+            supplier_id = request.POST.get('supplier_id', '')
+            if supplier_id:
+                supplier = get_object_or_404(MaterialSupplier, pk=supplier_id)
+                if supplier.inbounds.exists():
+                    messages.error(request, '该供应商存在入库记录，无法删除')
+                else:
+                    supplier.delete()
+                    messages.success(request, '供应商删除成功')
+                return redirect('production:material_supplier_list')
+    
+    context = {
+        'suppliers': suppliers,
+        'status_filter': status_filter,
+    }
+    return render(request, 'production/material_supplier_list.html', context)
+
+
+def material_list(request):
+    materials = Material.objects.filter(is_active=True)
+    
+    category_filter = request.GET.get('category', '')
+    status_filter = request.GET.get('status', '')
+    keyword = request.GET.get('keyword', '')
+    
+    if category_filter:
+        materials = materials.filter(category_id=category_filter)
+    if keyword:
+        materials = materials.filter(Q(name__icontains=keyword) | Q(code__icontains=keyword) | 
+                                      Q(specification__icontains=keyword))
+    
+    materials_with_stock = []
+    for material in materials:
+        materials_with_stock.append({
+            'material': material,
+            'current_stock': material.get_current_stock(),
+            'stock_status': material.get_stock_status(),
+            'stock_status_display': material.get_stock_status_display(),
+        })
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        
+        if action == 'create':
+            name = request.POST.get('name', '').strip()
+            code = request.POST.get('code', '').strip()
+            category_id = request.POST.get('category_id', '')
+            specification = request.POST.get('specification', '').strip()
+            unit = request.POST.get('unit', 'kg')
+            safety_stock = request.POST.get('safety_stock', '0')
+            max_stock = request.POST.get('max_stock', '0')
+            min_stock = request.POST.get('min_stock', '0')
+            expiry_days = request.POST.get('expiry_days', '0')
+            description = request.POST.get('description', '').strip()
+            storage_condition = request.POST.get('storage_condition', '').strip()
+            
+            errors = []
+            if not name:
+                errors.append('请输入原料名称')
+            if not code:
+                errors.append('请输入原料编码')
+            if not category_id:
+                errors.append('请选择原料分类')
+            if Material.objects.filter(code=code).exists():
+                errors.append('原料编码已存在')
+            if Material.objects.filter(name=name, specification=specification).exists():
+                errors.append('该名称和规格的原料已存在')
+            
+            if errors:
+                for error in errors:
+                    messages.error(request, error)
+            else:
+                try:
+                    category = MaterialCategory.objects.get(pk=category_id)
+                    Material.objects.create(
+                        name=name,
+                        code=code,
+                        category=category,
+                        specification=specification,
+                        unit=unit,
+                        safety_stock=float(safety_stock) if safety_stock else 0,
+                        max_stock=float(max_stock) if max_stock else 0,
+                        min_stock=float(min_stock) if min_stock else 0,
+                        expiry_days=int(expiry_days) if expiry_days else 0,
+                        description=description,
+                        storage_condition=storage_condition,
+                    )
+                    
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                        return JsonResponse({
+                            'success': True,
+                            'message': f'原料 {name} 创建成功',
+                        })
+                    
+                    messages.success(request, f'原料 {name} 创建成功')
+                except Exception as e:
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                        return JsonResponse({
+                            'success': False,
+                            'error': str(e),
+                        })
+                    messages.error(request, f'创建失败: {str(e)}')
+            
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                return JsonResponse({
+                    'success': False,
+                    'errors': errors,
+                })
+            
+            return redirect('production:material_list')
+        
+        elif action == 'edit':
+            material_id = request.POST.get('material_id', '')
+            if material_id:
+                material = get_object_or_404(Material, pk=material_id)
+                material.name = request.POST.get('name', material.name).strip()
+                material.code = request.POST.get('code', material.code).strip()
+                
+                category_id = request.POST.get('category_id', '')
+                if category_id:
+                    try:
+                        material.category = MaterialCategory.objects.get(pk=category_id)
+                    except MaterialCategory.DoesNotExist:
+                        pass
+                
+                material.specification = request.POST.get('specification', material.specification).strip()
+                material.unit = request.POST.get('unit', material.unit)
+                material.safety_stock = float(request.POST.get('safety_stock', material.safety_stock))
+                material.max_stock = float(request.POST.get('max_stock', material.max_stock))
+                material.min_stock = float(request.POST.get('min_stock', material.min_stock))
+                material.expiry_days = int(request.POST.get('expiry_days', material.expiry_days))
+                material.description = request.POST.get('description', material.description).strip()
+                material.storage_condition = request.POST.get('storage_condition', material.storage_condition).strip()
+                material.save()
+                
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                    return JsonResponse({
+                        'success': True,
+                        'message': f'原料 {material.name} 更新成功',
+                    })
+                
+                messages.success(request, f'原料 {material.name} 更新成功')
+                return redirect('production:material_list')
+        
+        elif action == 'delete':
+            material_id = request.POST.get('material_id', '')
+            if material_id:
+                material = get_object_or_404(Material, pk=material_id)
+                if material.inbounds.exists() or material.outbounds.exists() or material.losses.exists():
+                    error_msg = '该原料存在出入库记录，无法删除'
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                        return JsonResponse({
+                            'success': False,
+                            'error': error_msg,
+                        })
+                    messages.error(request, error_msg)
+                else:
+                    material.is_active = False
+                    material.save()
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                        return JsonResponse({
+                            'success': True,
+                            'message': '原料已停用',
+                        })
+                    messages.success(request, '原料已停用')
+                return redirect('production:material_list')
+    
+    context = {
+        'materials': materials_with_stock,
+        'category_filter': category_filter,
+        'status_filter': status_filter,
+        'keyword': keyword,
+        'categories': MaterialCategory.objects.filter(is_active=True),
+        'unit_choices': MATERIAL_UNIT_CHOICES,
+    }
+    return render(request, 'production/material_list.html', context)
+
+
+def material_detail(request, pk):
+    material = get_object_or_404(Material, pk=pk)
+    current_stock = material.get_current_stock()
+    stock_status = material.get_stock_status()
+    
+    inbounds = material.inbounds.all()
+    outbounds = material.outbounds.all()
+    losses = material.losses.all()
+    batch_usages = material.batch_usages.all()
+    
+    inbound_total = inbounds.aggregate(total=Sum('quantity'))['total'] or 0
+    outbound_total = outbounds.aggregate(total=Sum('quantity'))['total'] or 0
+    loss_total = losses.aggregate(total=Sum('quantity'))['total'] or 0
+    
+    inbound_batches = []
+    for inbound in inbounds:
+        remaining = inbound.get_remaining_quantity()
+        inbound_batches.append({
+            'inbound': inbound,
+            'remaining': remaining,
+            'is_expired': inbound.is_expired(),
+            'is_near_expiry': inbound.is_near_expiry(),
+        })
+    
+    today = timezone.now().date()
+    last_30_days = today - timedelta(days=30)
+    
+    trend_data = []
+    for i in range(29, -1, -1):
+        date_i = today - timedelta(days=i)
+        day_inbound = inbounds.filter(inbound_date=date_i).aggregate(total=Sum('quantity'))['total'] or 0
+        day_outbound = outbounds.filter(outbound_date=date_i).aggregate(total=Sum('quantity'))['total'] or 0
+        day_loss = losses.filter(loss_date=date_i).aggregate(total=Sum('quantity'))['total'] or 0
+        trend_data.append({
+            'date': date_i.strftime('%m-%d'),
+            'inbound': round(day_inbound, 2),
+            'outbound': round(day_outbound, 2),
+            'loss': round(day_loss, 2),
+        })
+    
+    context = {
+        'material': material,
+        'current_stock': current_stock,
+        'stock_status': stock_status,
+        'stock_status_display': material.get_stock_status_display(),
+        'inbound_total': round(inbound_total, 2),
+        'outbound_total': round(outbound_total, 2),
+        'loss_total': round(loss_total, 2),
+        'inbound_batches': inbound_batches,
+        'outbounds': outbounds[:20],
+        'losses': losses[:20],
+        'batch_usages': batch_usages[:20],
+        'trend_data': trend_data,
+        'unit_display': material.get_unit_display(),
+    }
+    return render(request, 'production/material_detail.html', context)
+
+
+def material_inbound_list(request):
+    inbounds = MaterialInbound.objects.all()
+    
+    material_filter = request.GET.get('material', '')
+    supplier_filter = request.GET.get('supplier', '')
+    type_filter = request.GET.get('type', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    if material_filter:
+        inbounds = inbounds.filter(material_id=material_filter)
+    if supplier_filter:
+        inbounds = inbounds.filter(supplier_id=supplier_filter)
+    if type_filter:
+        inbounds = inbounds.filter(inbound_type=type_filter)
+    if start_date:
+        try:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            inbounds = inbounds.filter(inbound_date__gte=start)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            inbounds = inbounds.filter(inbound_date__lte=end)
+        except ValueError:
+            pass
+    
+    stats = {
+        'total_count': inbounds.count(),
+        'total_quantity': round(inbounds.aggregate(total=Sum('quantity'))['total'] or 0, 2),
+        'total_amount': round(inbounds.aggregate(total=Sum('total_amount'))['total'] or 0, 2),
+    }
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        
+        if action == 'create':
+            material_id = request.POST.get('material_id', '')
+            supplier_id = request.POST.get('supplier_id', '')
+            quantity = request.POST.get('quantity', '')
+            unit_price = request.POST.get('unit_price', '0')
+            inbound_type = request.POST.get('inbound_type', 'purchase')
+            batch_no = request.POST.get('batch_no', '').strip()
+            production_date = request.POST.get('production_date', '')
+            expiry_date = request.POST.get('expiry_date', '')
+            inbound_date = request.POST.get('inbound_date', '')
+            warehouse = request.POST.get('warehouse', '').strip()
+            location = request.POST.get('location', '').strip()
+            inspector = request.POST.get('inspector', '').strip()
+            operator = request.POST.get('operator', '').strip()
+            remark = request.POST.get('remark', '').strip()
+            
+            errors = []
+            if not material_id:
+                errors.append('请选择原料')
+            if not supplier_id:
+                errors.append('请选择供应商')
+            if not quantity or float(quantity) <= 0:
+                errors.append('请输入有效的入库数量')
+            if not operator:
+                errors.append('请输入经办人')
+            
+            if errors:
+                for error in errors:
+                    messages.error(request, error)
+            else:
+                try:
+                    material = Material.objects.get(pk=material_id)
+                    supplier = MaterialSupplier.objects.get(pk=supplier_id)
+                    
+                    prod_date = None
+                    if production_date:
+                        prod_date = datetime.strptime(production_date, '%Y-%m-%d').date()
+                    
+                    exp_date = None
+                    if expiry_date:
+                        exp_date = datetime.strptime(expiry_date, '%Y-%m-%d').date()
+                    
+                    inb_date = timezone.now().date()
+                    if inbound_date:
+                        inb_date = datetime.strptime(inbound_date, '%Y-%m-%d').date()
+                    
+                    inbound = MaterialInbound.objects.create(
+                        inbound_no=generate_inbound_no(),
+                        material=material,
+                        supplier=supplier,
+                        quantity=float(quantity),
+                        unit_price=float(unit_price) if unit_price else 0,
+                        inbound_type=inbound_type,
+                        batch_no=batch_no,
+                        production_date=prod_date,
+                        expiry_date=exp_date,
+                        inbound_date=inb_date,
+                        warehouse=warehouse,
+                        location=location,
+                        inspector=inspector,
+                        operator=operator,
+                        remark=remark,
+                    )
+                    
+                    alerts = check_stock_alerts()
+                    if alerts:
+                        messages.warning(request, f'入库成功，检测到 {len(alerts)} 条库存预警')
+                    else:
+                        messages.success(request, f'入库单 {inbound.inbound_no} 创建成功')
+                    
+                except Exception as e:
+                    messages.error(request, f'创建失败: {str(e)}')
+            
+            return redirect('production:material_inbound_list')
+        
+        elif action == 'delete':
+            inbound_id = request.POST.get('inbound_id', '')
+            if inbound_id:
+                inbound = get_object_or_404(MaterialInbound, pk=inbound_id)
+                if inbound.outbounds.exists() or inbound.losses.exists():
+                    messages.error(request, '该入库单存在出库或损耗记录，无法删除')
+                else:
+                    inbound.delete()
+                    messages.success(request, '入库单删除成功')
+                return redirect('production:material_inbound_list')
+    
+    context = {
+        'inbounds': inbounds[:100],
+        'stats': stats,
+        'material_filter': material_filter,
+        'supplier_filter': supplier_filter,
+        'type_filter': type_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'materials': Material.objects.filter(is_active=True),
+        'suppliers': MaterialSupplier.objects.filter(is_active=True),
+        'inbound_type_choices': INBOUND_TYPE_CHOICES,
+    }
+    return render(request, 'production/material_inbound_list.html', context)
+
+
+def material_inbound_detail(request, pk):
+    inbound = get_object_or_404(MaterialInbound, pk=pk)
+    remaining = inbound.get_remaining_quantity()
+    
+    outbounds = inbound.outbounds.all()
+    losses = inbound.losses.all()
+    
+    context = {
+        'inbound': inbound,
+        'remaining': remaining,
+        'outbounds': outbounds,
+        'losses': losses,
+    }
+    return render(request, 'production/material_inbound_detail.html', context)
+
+
+def material_outbound_list(request):
+    outbounds = MaterialOutbound.objects.all()
+    
+    material_filter = request.GET.get('material', '')
+    type_filter = request.GET.get('type', '')
+    batch_filter = request.GET.get('batch', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    if material_filter:
+        outbounds = outbounds.filter(material_id=material_filter)
+    if type_filter:
+        outbounds = outbounds.filter(outbound_type=type_filter)
+    if batch_filter:
+        outbounds = outbounds.filter(batch__batch_no__icontains=batch_filter)
+    if start_date:
+        try:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            outbounds = outbounds.filter(outbound_date__gte=start)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            outbounds = outbounds.filter(outbound_date__lte=end)
+        except ValueError:
+            pass
+    
+    stats = {
+        'total_count': outbounds.count(),
+        'total_quantity': round(outbounds.aggregate(total=Sum('quantity'))['total'] or 0, 2),
+    }
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        
+        if action == 'create':
+            material_id = request.POST.get('material_id', '')
+            quantity = request.POST.get('quantity', '')
+            outbound_type = request.POST.get('outbound_type', 'production')
+            inbound_ref_id = request.POST.get('inbound_ref_id', '')
+            batch_id = request.POST.get('batch_id', '')
+            outbound_date = request.POST.get('outbound_date', '')
+            warehouse = request.POST.get('warehouse', '').strip()
+            location = request.POST.get('location', '').strip()
+            receiver = request.POST.get('receiver', '').strip()
+            operator = request.POST.get('operator', '').strip()
+            remark = request.POST.get('remark', '').strip()
+            
+            usage_stage = request.POST.get('usage_stage', '')
+            planned_quantity = request.POST.get('planned_quantity', '0')
+            
+            errors = []
+            if not material_id:
+                errors.append('请选择原料')
+            if not quantity or float(quantity) <= 0:
+                errors.append('请输入有效的出库数量')
+            if not operator:
+                errors.append('请输入经办人')
+            
+            if errors:
+                for error in errors:
+                    messages.error(request, error)
+            else:
+                try:
+                    material = Material.objects.get(pk=material_id)
+                    
+                    inbound_ref = None
+                    if inbound_ref_id:
+                        inbound_ref = MaterialInbound.objects.get(pk=inbound_ref_id)
+                    
+                    batch = None
+                    if batch_id:
+                        batch = RawMaterialBatch.objects.get(pk=batch_id)
+                    
+                    out_date = timezone.now().date()
+                    if outbound_date:
+                        out_date = datetime.strptime(outbound_date, '%Y-%m-%d').date()
+                    
+                    with transaction.atomic():
+                        outbound = MaterialOutbound.objects.create(
+                            outbound_no=generate_outbound_no(),
+                            material=material,
+                            quantity=float(quantity),
+                            outbound_type=outbound_type,
+                            outbound_date=out_date,
+                            inbound_ref=inbound_ref,
+                            batch=batch,
+                            warehouse=warehouse,
+                            location=location,
+                            receiver=receiver,
+                            operator=operator,
+                            remark=remark,
+                        )
+                        
+                        if batch and outbound_type == 'production':
+                            BatchMaterialUsage.objects.create(
+                                batch=batch,
+                                material=material,
+                                outbound=outbound,
+                                planned_quantity=float(planned_quantity) if planned_quantity else 0,
+                                actual_quantity=float(quantity),
+                                unit=material.unit,
+                                usage_stage=usage_stage if usage_stage else None,
+                                usage_date=out_date,
+                                operator=operator,
+                                remark=remark,
+                            )
+                    
+                    alerts = check_stock_alerts()
+                    if alerts:
+                        messages.warning(request, f'出库成功，检测到 {len(alerts)} 条库存预警')
+                    else:
+                        messages.success(request, f'出库单 {outbound.outbound_no} 创建成功')
+                    
+                except Exception as e:
+                    messages.error(request, f'创建失败: {str(e)}')
+            
+            return redirect('production:material_outbound_list')
+        
+        elif action == 'delete':
+            outbound_id = request.POST.get('outbound_id', '')
+            if outbound_id:
+                outbound = get_object_or_404(MaterialOutbound, pk=outbound_id)
+                if hasattr(outbound, 'batch_usage'):
+                    outbound.batch_usage.delete()
+                outbound.delete()
+                messages.success(request, '出库单删除成功')
+                return redirect('production:material_outbound_list')
+    
+    context = {
+        'outbounds': outbounds[:100],
+        'stats': stats,
+        'material_filter': material_filter,
+        'type_filter': type_filter,
+        'batch_filter': batch_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'materials': Material.objects.filter(is_active=True),
+        'batches': RawMaterialBatch.objects.all(),
+        'outbound_type_choices': OUTBOUND_TYPE_CHOICES,
+        'stage_choices': STAGE_CHOICES,
+    }
+    return render(request, 'production/material_outbound_list.html', context)
+
+
+def material_loss_list(request):
+    losses = MaterialLoss.objects.all()
+    
+    material_filter = request.GET.get('material', '')
+    reason_filter = request.GET.get('reason', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    if material_filter:
+        losses = losses.filter(material_id=material_filter)
+    if reason_filter:
+        losses = losses.filter(loss_reason=reason_filter)
+    if start_date:
+        try:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            losses = losses.filter(loss_date__gte=start)
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            losses = losses.filter(loss_date__lte=end)
+        except ValueError:
+            pass
+    
+    stats = {
+        'total_count': losses.count(),
+        'total_quantity': round(losses.aggregate(total=Sum('quantity'))['total'] or 0, 2),
+    }
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        
+        if action == 'create':
+            material_id = request.POST.get('material_id', '')
+            quantity = request.POST.get('quantity', '')
+            loss_reason = request.POST.get('loss_reason', 'natural')
+            inbound_ref_id = request.POST.get('inbound_ref_id', '')
+            loss_date = request.POST.get('loss_date', '')
+            warehouse = request.POST.get('warehouse', '').strip()
+            location = request.POST.get('location', '').strip()
+            reported_by = request.POST.get('reported_by', '').strip()
+            approved_by = request.POST.get('approved_by', '').strip()
+            description = request.POST.get('description', '').strip()
+            remark = request.POST.get('remark', '').strip()
+            
+            errors = []
+            if not material_id:
+                errors.append('请选择原料')
+            if not quantity or float(quantity) <= 0:
+                errors.append('请输入有效的损耗数量')
+            if not reported_by:
+                errors.append('请输入上报人')
+            if not description:
+                errors.append('请填写损耗说明')
+            
+            if errors:
+                for error in errors:
+                    messages.error(request, error)
+            else:
+                try:
+                    material = Material.objects.get(pk=material_id)
+                    
+                    inbound_ref = None
+                    if inbound_ref_id:
+                        inbound_ref = MaterialInbound.objects.get(pk=inbound_ref_id)
+                    
+                    l_date = timezone.now().date()
+                    if loss_date:
+                        l_date = datetime.strptime(loss_date, '%Y-%m-%d').date()
+                    
+                    loss = MaterialLoss.objects.create(
+                        loss_no=generate_loss_no(),
+                        material=material,
+                        quantity=float(quantity),
+                        loss_reason=loss_reason,
+                        loss_date=l_date,
+                        inbound_ref=inbound_ref,
+                        warehouse=warehouse,
+                        location=location,
+                        reported_by=reported_by,
+                        approved_by=approved_by,
+                        description=description,
+                        remark=remark,
+                    )
+                    
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                        return JsonResponse({
+                            'success': True,
+                            'message': '损耗记录创建成功',
+                            'loss_id': loss.pk,
+                        })
+                    
+                    messages.success(request, '损耗记录创建成功')
+                    
+                except Exception as e:
+                    if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                        return JsonResponse({
+                            'success': False,
+                            'error': str(e),
+                        })
+                    messages.error(request, f'创建失败: {str(e)}')
+            
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                return JsonResponse({
+                    'success': False,
+                    'errors': errors,
+                })
+            
+            return redirect('production:material_loss_list')
+        
+        elif action == 'delete':
+            loss_id = request.POST.get('loss_id', '')
+            if loss_id:
+                loss = get_object_or_404(MaterialLoss, pk=loss_id)
+                loss.delete()
+                messages.success(request, '损耗记录删除成功')
+                return redirect('production:material_loss_list')
+    
+    context = {
+        'losses': losses[:100],
+        'stats': stats,
+        'material_filter': material_filter,
+        'reason_filter': reason_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'materials': Material.objects.filter(is_active=True),
+        'loss_reason_choices': LOSS_REASON_CHOICES,
+    }
+    return render(request, 'production/material_loss_list.html', context)
+
+
+def batch_material_trace(request, batch_id):
+    batch = get_object_or_404(RawMaterialBatch, pk=batch_id)
+    material_usages = batch.batch_materials.all()
+    
+    usage_summary = {}
+    for usage in material_usages:
+        mat_id = usage.material_id
+        if mat_id not in usage_summary:
+            usage_summary[mat_id] = {
+                'material': usage.material,
+                'total_quantity': 0,
+                'usage_count': 0,
+                'usages': [],
+            }
+        usage_summary[mat_id]['total_quantity'] += usage.actual_quantity
+        usage_summary[mat_id]['usage_count'] += 1
+        usage_summary[mat_id]['usages'].append(usage)
+    
+    total_material_cost = 0
+    for summary in usage_summary.values():
+        for usage in summary['usages']:
+            if usage.outbound and usage.outbound.inbound_ref:
+                total_material_cost += usage.actual_quantity * usage.outbound.inbound_ref.unit_price
+    
+    context = {
+        'batch': batch,
+        'material_usages': material_usages,
+        'usage_summary': list(usage_summary.values()),
+        'total_material_cost': round(total_material_cost, 2),
+    }
+    return render(request, 'production/batch_material_trace.html', context)
+
+
+def material_stock_alert_list(request):
+    alerts = MaterialStockAlert.objects.all()
+    
+    type_filter = request.GET.get('type', '')
+    level_filter = request.GET.get('level', '')
+    status_filter = request.GET.get('status', '')
+    
+    if type_filter:
+        alerts = alerts.filter(alert_type=type_filter)
+    if level_filter:
+        alerts = alerts.filter(alert_level=level_filter)
+    if status_filter:
+        alerts = alerts.filter(alert_status=status_filter)
+    
+    stats = {
+        'total': alerts.count(),
+        'active': MaterialStockAlert.objects.filter(alert_status='active').count(),
+        'acknowledged': MaterialStockAlert.objects.filter(alert_status='acknowledged').count(),
+        'resolved': MaterialStockAlert.objects.filter(alert_status='resolved').count(),
+        'danger': MaterialStockAlert.objects.filter(alert_level='danger', 
+                                                   alert_status__in=['active', 'acknowledged']).count(),
+        'warning': MaterialStockAlert.objects.filter(alert_level='warning', 
+                                                    alert_status__in=['active', 'acknowledged']).count(),
+        'info': MaterialStockAlert.objects.filter(alert_level='info', 
+                                                 alert_status__in=['active', 'acknowledged']).count(),
+    }
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        
+        if action == 'check':
+            new_alerts = check_stock_alerts()
+            messages.success(request, f'库存预警检查完成，新增 {len(new_alerts)} 条预警')
+            return redirect('production:material_stock_alert_list')
+        
+        elif action == 'process':
+            alert_id = request.POST.get('alert_id', '')
+            process_action = request.POST.get('process_action', '')
+            handler = request.POST.get('handler', '').strip()
+            notes = request.POST.get('handle_notes', '').strip()
+            
+            if alert_id:
+                alert = get_object_or_404(MaterialStockAlert, pk=alert_id)
+                
+                if process_action == 'acknowledge':
+                    alert.alert_status = 'acknowledged'
+                    alert.acknowledged_at = timezone.now()
+                    alert.acknowledged_by = handler or '系统管理员'
+                    alert.handle_notes = notes
+                    alert.save()
+                    messages.success(request, '预警已确认')
+                elif process_action == 'resolve':
+                    alert.alert_status = 'resolved'
+                    alert.resolved_at = timezone.now()
+                    alert.resolved_by = handler or '系统管理员'
+                    alert.handle_notes = notes
+                    alert.save()
+                    messages.success(request, '预警已解决')
+                elif process_action == 'close':
+                    alert.alert_status = 'closed'
+                    alert.resolved_at = timezone.now()
+                    alert.resolved_by = handler or '系统管理员'
+                    alert.handle_notes = notes
+                    alert.save()
+                    messages.success(request, '预警已关闭')
+                
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.content_type == 'multipart/form-data':
+                    return JsonResponse({
+                        'success': True,
+                        'message': f'预警已{process_action}成功',
+                    })
+                
+                return redirect('production:material_stock_alert_list')
+    
+    context = {
+        'alerts': alerts[:50],
+        'stats': stats,
+        'type_filter': type_filter,
+        'level_filter': level_filter,
+        'status_filter': status_filter,
+        'stock_alert_type_choices': STOCK_ALERT_STATUS_CHOICES,
+        'alert_level_choices': ALERT_LEVEL_CHOICES,
+        'alert_status_choices': ALERT_STATUS_CHOICES,
+    }
+    return render(request, 'production/material_stock_alert_list.html', context)
+
+
+def material_stock_alert_detail(request, pk):
+    alert = get_object_or_404(MaterialStockAlert, pk=pk)
+    
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+        notes = request.POST.get('handle_notes', '').strip()
+        handler = request.POST.get('handler', '').strip()
+        
+        if action == 'acknowledge':
+            alert.alert_status = 'acknowledged'
+            alert.acknowledged_at = timezone.now()
+            alert.acknowledged_by = handler or '系统管理员'
+            alert.handle_notes = notes
+            alert.save()
+            messages.success(request, '预警已确认')
+        elif action == 'resolve':
+            alert.alert_status = 'resolved'
+            alert.resolved_at = timezone.now()
+            alert.resolved_by = handler or '系统管理员'
+            alert.handle_notes = notes
+            alert.save()
+            messages.success(request, '预警已解决')
+        elif action == 'close':
+            alert.alert_status = 'closed'
+            alert.closed_at = timezone.now() if hasattr(alert, 'closed_at') else None
+            alert.resolved_by = handler or '系统管理员'
+            alert.handle_notes = notes
+            alert.save()
+            messages.success(request, '预警已关闭')
+        
+        return redirect('production:material_stock_alert_detail', pk=pk)
+    
+    context = {
+        'alert': alert,
+    }
+    return render(request, 'production/material_stock_alert_detail.html', context)
+
+
+def material_ledger(request):
+    materials = Material.objects.filter(is_active=True)
+    
+    material_filter = request.GET.get('material', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    if material_filter:
+        materials = materials.filter(pk=material_filter)
+    
+    date_q_inbound = Q()
+    date_q_outbound = Q()
+    date_q_loss = Q()
+    
+    if start_date:
+        try:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            date_q_inbound &= Q(inbound_date__gte=start)
+            date_q_outbound &= Q(outbound_date__gte=start)
+            date_q_loss &= Q(loss_date__gte=start)
+        except ValueError:
+            pass
+    
+    if end_date:
+        try:
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            date_q_inbound &= Q(inbound_date__lte=end)
+            date_q_outbound &= Q(outbound_date__lte=end)
+            date_q_loss &= Q(loss_date__lte=end)
+        except ValueError:
+            pass
+    
+    ledger_data = []
+    for material in materials:
+        before_start_inbound = 0
+        before_start_outbound = 0
+        before_start_loss = 0
+        
+        if start_date:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            before_start_inbound = material.inbounds.filter(inbound_date__lt=start).aggregate(
+                total=Sum('quantity'))['total'] or 0
+            before_start_outbound = material.outbounds.filter(outbound_date__lt=start).aggregate(
+                total=Sum('quantity'))['total'] or 0
+            before_start_loss = material.losses.filter(loss_date__lt=start).aggregate(
+                total=Sum('quantity'))['total'] or 0
+        
+        opening_stock = round(before_start_inbound - before_start_outbound - before_start_loss, 2)
+        
+        period_inbound = material.inbounds.filter(date_q_inbound).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        period_outbound = material.outbounds.filter(date_q_outbound).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        period_loss = material.losses.filter(date_q_loss).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        
+        closing_stock = round(opening_stock + period_inbound - period_outbound - period_loss, 2)
+        
+        inbounds = material.inbounds.filter(date_q_inbound)
+        outbounds = material.outbounds.filter(date_q_outbound)
+        losses = material.losses.filter(date_q_loss)
+        
+        records = []
+        for ib in inbounds:
+            records.append({
+                'date': ib.inbound_date,
+                'type': '入库',
+                'type_class': 'success',
+                'ref_no': ib.inbound_no,
+                'supplier': ib.supplier.name if ib.supplier else '',
+                'in_quantity': ib.quantity,
+                'out_quantity': 0,
+                'loss_quantity': 0,
+                'operator': ib.operator,
+                'remark': ib.remark,
+            })
+        
+        for ob in outbounds:
+            records.append({
+                'date': ob.outbound_date,
+                'type': '出库',
+                'type_class': 'warning',
+                'ref_no': ob.outbound_no,
+                'supplier': ob.batch.batch_no if ob.batch else '',
+                'in_quantity': 0,
+                'out_quantity': ob.quantity,
+                'loss_quantity': 0,
+                'operator': ob.operator,
+                'remark': ob.remark,
+            })
+        
+        for ls in losses:
+            records.append({
+                'date': ls.loss_date,
+                'type': '损耗',
+                'type_class': 'danger',
+                'ref_no': ls.loss_no,
+                'supplier': ls.get_loss_reason_display(),
+                'in_quantity': 0,
+                'out_quantity': 0,
+                'loss_quantity': ls.quantity,
+                'operator': ls.reported_by,
+                'remark': ls.description,
+            })
+        
+        records.sort(key=lambda x: x['date'])
+        
+        running_balance = opening_stock
+        for record in records:
+            running_balance = round(running_balance + record['in_quantity'] - record['out_quantity'] - record['loss_quantity'], 2)
+            record['balance'] = running_balance
+        
+        ledger_data.append({
+            'material': material,
+            'opening_stock': opening_stock,
+            'period_inbound': round(period_inbound, 2),
+            'period_outbound': round(period_outbound, 2),
+            'period_loss': round(period_loss, 2),
+            'closing_stock': closing_stock,
+            'records': records,
+            'unit_display': material.get_unit_display(),
+        })
+    
+    totals = {
+        'opening': round(sum(d['opening_stock'] for d in ledger_data), 2),
+        'inbound': round(sum(d['period_inbound'] for d in ledger_data), 2),
+        'outbound': round(sum(d['period_outbound'] for d in ledger_data), 2),
+        'loss': round(sum(d['period_loss'] for d in ledger_data), 2),
+        'closing': round(sum(d['closing_stock'] for d in ledger_data), 2),
+    }
+    
+    if request.method == 'POST' and request.POST.get('action') == 'export':
+        export_type = 'material_ledger'
+        export_name = request.POST.get('export_name', '原料台账').strip()
+        requested_by = request.POST.get('requested_by', '').strip()
+        
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="{export_name}.csv"'
+        response.write('\ufeff')
+        
+        writer = csv.writer(response)
+        writer.writerow(['原料台账报表'])
+        writer.writerow(['统计期间', f'{start_date or "不限"} 至 {end_date or "不限"}'])
+        writer.writerow([])
+        
+        for data in ledger_data:
+            writer.writerow([f'原料: {data["material"].name} ({data["material"].code})'])
+            writer.writerow(['期初库存', data['opening_stock'], data['unit_display']])
+            writer.writerow(['本期入库', data['period_inbound'], data['unit_display']])
+            writer.writerow(['本期出库', data['period_outbound'], data['unit_display']])
+            writer.writerow(['本期损耗', data['period_loss'], data['unit_display']])
+            writer.writerow(['期末库存', data['closing_stock'], data['unit_display']])
+            writer.writerow([])
+            writer.writerow(['日期', '类型', '单号', '关联', '入库数量', '出库数量', '损耗数量', '结存', '操作人', '备注'])
+            
+            running = data['opening_stock']
+            writer.writerow([start_date or '期初', '期初', '', '', '', '', '', running, '', ''])
+            
+            for record in data['records']:
+                running = round(running + record['in_quantity'] - record['out_quantity'] - record['loss_quantity'], 2)
+                writer.writerow([
+                    record['date'],
+                    record['type'],
+                    record['ref_no'],
+                    record['supplier'],
+                    record['in_quantity'] if record['in_quantity'] > 0 else '',
+                    record['out_quantity'] if record['out_quantity'] > 0 else '',
+                    record['loss_quantity'] if record['loss_quantity'] > 0 else '',
+                    running,
+                    record['operator'],
+                    record['remark'],
+                ])
+            
+            writer.writerow([])
+            writer.writerow([])
+        
+        return response
+    
+    context = {
+        'ledger_data': ledger_data,
+        'totals': totals,
+        'material_filter': material_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'materials': Material.objects.filter(is_active=True),
+    }
+    return render(request, 'production/material_ledger.html', context)
+
+
+def material_statistics(request):
+    materials = Material.objects.filter(is_active=True)
+    
+    category_filter = request.GET.get('category', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    date_q_inbound = Q()
+    date_q_outbound = Q()
+    date_q_loss = Q()
+    
+    if start_date:
+        try:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            date_q_inbound &= Q(inbound_date__gte=start)
+            date_q_outbound &= Q(outbound_date__gte=start)
+            date_q_loss &= Q(loss_date__gte=start)
+        except ValueError:
+            pass
+    
+    if end_date:
+        try:
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            date_q_inbound &= Q(inbound_date__lte=end)
+            date_q_outbound &= Q(outbound_date__lte=end)
+            date_q_loss &= Q(loss_date__lte=end)
+        except ValueError:
+            pass
+    
+    if category_filter:
+        materials = materials.filter(category_id=category_filter)
+    
+    material_stats = []
+    for material in materials:
+        period_inbound = material.inbounds.filter(date_q_inbound).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        period_outbound = material.outbounds.filter(date_q_outbound).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        period_loss = material.losses.filter(date_q_loss).aggregate(
+            total=Sum('quantity'))['total'] or 0
+        period_amount = material.inbounds.filter(date_q_inbound).aggregate(
+            total=Sum('total_amount'))['total'] or 0
+        
+        current_stock = material.get_current_stock()
+        
+        usage_batches = material.batch_usages.count()
+        
+        loss_rate = round((period_loss / (period_inbound + 0.001)) * 100, 2)
+        
+        material_stats.append({
+            'material': material,
+            'period_inbound': round(period_inbound, 2),
+            'period_outbound': round(period_outbound, 2),
+            'period_loss': round(period_loss, 2),
+            'period_amount': round(period_amount, 2),
+            'current_stock': current_stock,
+            'usage_batches': usage_batches,
+            'loss_rate': loss_rate,
+            'unit_display': material.get_unit_display(),
+        })
+    
+    category_stats = []
+    for category in MaterialCategory.objects.filter(is_active=True):
+        if category_filter and str(category.id) != category_filter:
+            continue
+            
+        cat_materials = category.materials.filter(is_active=True)
+        cat_inbound = 0
+        cat_outbound = 0
+        cat_loss = 0
+        cat_amount = 0
+        for mat in cat_materials:
+            cat_inbound += mat.inbounds.filter(date_q_inbound).aggregate(
+                total=Sum('quantity'))['total'] or 0
+            cat_outbound += mat.outbounds.filter(date_q_outbound).aggregate(
+                total=Sum('quantity'))['total'] or 0
+            cat_loss += mat.losses.filter(date_q_loss).aggregate(
+                total=Sum('quantity'))['total'] or 0
+            cat_amount += mat.inbounds.filter(date_q_inbound).aggregate(
+                total=Sum('total_amount'))['total'] or 0
+        
+        category_stats.append({
+            'category': category,
+            'material_count': cat_materials.count(),
+            'total_inbound': round(cat_inbound, 2),
+            'total_outbound': round(cat_outbound, 2),
+            'total_loss': round(cat_loss, 2),
+            'total_amount': round(cat_amount, 2),
+        })
+    
+    supplier_stats = []
+    for supplier in MaterialSupplier.objects.filter(is_active=True):
+        sup_inbounds = supplier.inbounds.filter(date_q_inbound)
+        sup_total = sup_inbounds.aggregate(total=Sum('total_amount'))['total'] or 0
+        sup_quantity = sup_inbounds.aggregate(total=Sum('quantity'))['total'] or 0
+        
+        supplier_stats.append({
+            'supplier': supplier,
+            'inbound_count': sup_inbounds.count(),
+            'total_quantity': round(sup_quantity, 2),
+            'total_amount': round(sup_total, 2),
+        })
+    supplier_stats.sort(key=lambda x: x['total_amount'], reverse=True)
+    
+    today = timezone.now().date()
+    monthly_data = []
+    for i in range(11, -1, -1):
+        month_date = today - timedelta(days=i * 30)
+        month_start = month_date.replace(day=1)
+        if month_start.month == 12:
+            next_month = month_start.replace(year=month_start.year + 1, month=1)
+        else:
+            next_month = month_start.replace(month=month_start.month + 1)
+        
+        month_inbound = MaterialInbound.objects.filter(
+            inbound_date__gte=month_start,
+            inbound_date__lt=next_month
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+        
+        month_outbound = MaterialOutbound.objects.filter(
+            outbound_date__gte=month_start,
+            outbound_date__lt=next_month
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+        
+        month_loss = MaterialLoss.objects.filter(
+            loss_date__gte=month_start,
+            loss_date__lt=next_month
+        ).aggregate(total=Sum('quantity'))['total'] or 0
+        
+        monthly_data.append({
+            'month': month_start.strftime('%Y-%m'),
+            'inbound': round(month_inbound, 2),
+            'outbound': round(month_outbound, 2),
+            'loss': round(month_loss, 2),
+            'net': round(month_inbound - month_outbound - month_loss, 2),
+        })
+    
+    chart_data = {
+        'category_labels': [s['category'].name for s in category_stats],
+        'category_inbound': [s['total_inbound'] for s in category_stats],
+        'category_outbound': [s['total_outbound'] for s in category_stats],
+        'monthly_labels': [m['month'] for m in monthly_data],
+        'monthly_inbound': [m['inbound'] for m in monthly_data],
+        'monthly_outbound': [m['outbound'] for m in monthly_data],
+        'top_supplier_labels': [s['supplier'].name for s in supplier_stats[:10]],
+        'top_supplier_amounts': [s['total_amount'] for s in supplier_stats[:10]],
+    }
+    
+    context = {
+        'material_stats': material_stats,
+        'category_stats': category_stats,
+        'supplier_stats': supplier_stats[:10],
+        'monthly_data': monthly_data,
+        'chart_data': chart_data,
+        'category_filter': category_filter,
+        'start_date': start_date,
+        'end_date': end_date,
+        'categories': MaterialCategory.objects.filter(is_active=True),
+    }
+    return render(request, 'production/material_statistics.html', context)
+
+
+def run_stock_alert_check(request):
+    if request.method == 'POST':
+        try:
+            new_alerts = check_stock_alerts()
+            return JsonResponse({
+                'success': True,
+                'new_alerts': len(new_alerts),
+                'total_alerts': MaterialStockAlert.objects.count(),
+            })
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    
+    return JsonResponse({'success': False, 'error': '仅支持POST请求'})
+
+
+def material_toggle_status(request, pk):
+    if request.method == 'POST':
+        try:
+            material = get_object_or_404(Material, pk=pk)
+            material.is_active = not material.is_active
+            material.save()
+            return JsonResponse({
+                'success': True,
+                'is_active': material.is_active,
+            })
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    
+    return JsonResponse({'success': False, 'error': '仅支持POST请求'})
+
+
+def material_outbound_detail(request, pk):
+    outbound = get_object_or_404(MaterialOutbound, pk=pk)
+    
+    batch_usage = BatchMaterialUsage.objects.filter(outbound=outbound).first()
+    
+    context = {
+        'outbound': outbound,
+        'batch_usage': batch_usage,
+    }
+    return render(request, 'production/material_outbound_detail.html', context)
+
+
+def material_loss_detail(request, pk):
+    loss = get_object_or_404(MaterialLoss, pk=pk)
+    
+    context = {
+        'loss': loss,
+    }
+    return render(request, 'production/material_loss_detail.html', context)
+
+
+def material_ledger_export(request):
+    if request.method == 'POST':
+        material_filter = request.POST.get('material', '')
+        start_date = request.POST.get('start_date', '')
+        end_date = request.POST.get('end_date', '')
+        report_name = request.POST.get('report_name', '原料台账')
+        applicant = request.POST.get('applicant', '')
+        
+        ledger_data = []
+        
+        materials = Material.objects.all()
+        if material_filter:
+            materials = materials.filter(pk=material_filter)
+        
+        for material in materials:
+            inbounds = MaterialInbound.objects.filter(material=material)
+            outbounds = MaterialOutbound.objects.filter(material=material)
+            losses = MaterialLoss.objects.filter(material=material)
+            
+            if start_date:
+                try:
+                    start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                    inbounds = inbounds.filter(inbound_date__gte=start)
+                    outbounds = outbounds.filter(outbound_date__gte=start)
+                    losses = losses.filter(loss_date__gte=start)
+                except ValueError:
+                    pass
+            
+            if end_date:
+                try:
+                    end = datetime.strptime(end_date, '%Y-%m-%d').date()
+                    inbounds = inbounds.filter(inbound_date__lte=end)
+                    outbounds = outbounds.filter(outbound_date__lte=end)
+                    losses = losses.filter(loss_date__lte=end)
+                except ValueError:
+                    pass
+            
+            inbound_total = inbounds.aggregate(total=Sum('quantity'))['total'] or 0
+            outbound_total = outbounds.aggregate(total=Sum('quantity'))['total'] or 0
+            loss_total = losses.aggregate(total=Sum('quantity'))['total'] or 0
+            
+            current_stock = material.get_current_stock()
+            opening_stock = current_stock - inbound_total + outbound_total + loss_total
+            
+            records = []
+            for inbound in inbounds:
+                records.append({
+                    'date': inbound.inbound_date,
+                    'type': '入库',
+                    'no': inbound.inbound_no,
+                    'ref': inbound.supplier.name if inbound.supplier else '',
+                    'inbound': inbound.quantity,
+                    'outbound': 0,
+                    'loss': 0,
+                    'operator': inbound.operator or '',
+                    'remark': inbound.remark or '',
+                })
+            
+            for outbound in outbounds:
+                records.append({
+                    'date': outbound.outbound_date,
+                    'type': '出库',
+                    'no': outbound.outbound_no,
+                    'ref': outbound.batch.batch_no if outbound.batch else (outbound.reference or ''),
+                    'inbound': 0,
+                    'outbound': outbound.quantity,
+                    'loss': 0,
+                    'operator': outbound.operator or '',
+                    'remark': outbound.remark or '',
+                })
+            
+            for loss in losses:
+                records.append({
+                    'date': loss.loss_date,
+                    'type': '损耗',
+                    'no': loss.loss_no,
+                    'ref': loss.get_loss_reason_display(),
+                    'inbound': 0,
+                    'outbound': 0,
+                    'loss': loss.quantity,
+                    'operator': loss.reporter or '',
+                    'remark': loss.remark or '',
+                })
+            
+            records.sort(key=lambda x: x['date'])
+            
+            balance = opening_stock
+            for record in records:
+                balance = balance + record['inbound'] - record['outbound'] - record['loss']
+                record['balance'] = round(balance, 2)
+            
+            ledger_data.append({
+                'material': material,
+                'opening_stock': round(opening_stock, 2),
+                'inbound_total': round(inbound_total, 2),
+                'outbound_total': round(outbound_total, 2),
+                'loss_total': round(loss_total, 2),
+                'closing_stock': round(current_stock, 2),
+                'records': records,
+            })
+        
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="{report_name}_{timezone.now().strftime("%Y%m%d%H%M%S")}.csv"'
+        
+        response.write(codecs.BOM_UTF8)
+        writer = csv.writer(response)
+        
+        writer.writerow([f'原料台账 - {report_name}'])
+        writer.writerow([f'申请人: {applicant}', f'导出时间: {timezone.now().strftime("%Y-%m-%d %H:%M:%S")}'])
+        writer.writerow([f'日期范围: {start_date or "全部"} 至 {end_date or "全部"}'])
+        writer.writerow([])
+        
+        for data in ledger_data:
+            writer.writerow([
+                f'原料: {data["material"].name} ({data["material"].code})',
+                '', '', '', '', '',
+                f'期初: {data["opening_stock"]} {data["material"].get_unit_display()}',
+                f'入库: {data["inbound_total"]} {data["material"].get_unit_display()}',
+                f'出库: {data["outbound_total"]} {data["material"].get_unit_display()}',
+                f'损耗: {data["loss_total"]} {data["material"].get_unit_display()}',
+                f'期末: {data["closing_stock"]} {data["material"].get_unit_display()}',
+            ])
+            writer.writerow(['日期', '类型', '单号', '关联', '入库', '出库', '损耗', '结存', '操作人', '备注'])
+            
+            for record in data['records']:
+                writer.writerow([
+                    record['date'],
+                    record['type'],
+                    record['no'],
+                    record['ref'],
+                    record['inbound'],
+                    record['outbound'],
+                    record['loss'],
+                    record['balance'],
+                    record['operator'],
+                    record['remark'],
+                ])
+            
+            writer.writerow([])
+        
+        return response
+    
+    return redirect('production:material_ledger')

@@ -1,8 +1,13 @@
 from django.contrib import admin
+from django.db.models import Sum
 from .models import (
     RawMaterialBatch, ProcessStage, InspectionRecord, CrystallizationResult, AbnormalDisposal,
     AlertRule, AlertRecord, StageAudit, ParameterRecommendation, ExportRecord,
-    MaterialQualityStats, AbnormalClosure
+    MaterialQualityStats, AbnormalClosure,
+    MaterialCategory, MaterialSupplier, Material, MaterialInbound, MaterialOutbound,
+    MaterialLoss, BatchMaterialUsage, MaterialStockAlert, MaterialStockHistory,
+    MATERIAL_UNIT_CHOICES, STOCK_ALERT_STATUS_CHOICES, INBOUND_TYPE_CHOICES,
+    OUTBOUND_TYPE_CHOICES, LOSS_REASON_CHOICES
 )
 
 
@@ -97,3 +102,139 @@ class AbnormalClosureAdmin(admin.ModelAdmin):
     list_display = ('abnormal', 'closed_by', 'closed_at', 'is_effective', 'get_cycle_time')
     search_fields = ('abnormal__batch__batch_no', 'closed_by', 'root_cause_analysis')
     list_filter = ('is_effective', 'closed_at')
+
+
+@admin.register(MaterialCategory)
+class MaterialCategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'parent', 'sort_order', 'is_active', 'get_full_path')
+    search_fields = ('name', 'code', 'description')
+    list_filter = ('is_active', 'parent')
+    ordering = ['sort_order', 'name']
+
+
+@admin.register(MaterialSupplier)
+class MaterialSupplierAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'contact_person', 'contact_phone', 'is_active')
+    search_fields = ('name', 'code', 'contact_person', 'contact_phone', 'address')
+    list_filter = ('is_active',)
+    ordering = ['name']
+
+
+@admin.register(Material)
+class MaterialAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'category', 'specification', 'unit', 
+                    'get_current_stock_display', 'min_stock', 'max_stock', 
+                    'get_stock_status_badge', 'is_active')
+    search_fields = ('name', 'code', 'specification', 'description')
+    list_filter = ('category', 'unit', 'is_active')
+    ordering = ['code']
+    readonly_fields = ('created_at', 'updated_at')
+
+    def get_current_stock_display(self, obj):
+        return f'{obj.get_current_stock()} {obj.get_unit_display()}'
+    get_current_stock_display.short_description = '当前库存'
+
+    def get_stock_status_badge(self, obj):
+        from django.utils.html import format_html
+        status = obj.get_stock_status()
+        status_map = {
+            'normal': ('badge-success', '正常'),
+            'low_stock': ('badge-warning', '库存不足'),
+            'overstock': ('badge-info', '库存积压'),
+            'expired': ('badge-danger', '已过期'),
+            'near_expiry': ('badge-warning', '临近过期'),
+        }
+        badge_class, display_text = status_map.get(status, ('badge-info', '未知'))
+        return format_html(f'<span class="badge {badge_class}">{display_text}</span>')
+    get_stock_status_badge.short_description = '库存状态'
+    get_stock_status_badge.allow_tags = True
+
+
+@admin.register(MaterialInbound)
+class MaterialInboundAdmin(admin.ModelAdmin):
+    list_display = ('inbound_no', 'material', 'supplier', 'quantity', 'unit_price', 
+                    'total_amount', 'get_remaining_display', 'inbound_date', 
+                    'operator', 'get_expiry_status')
+    search_fields = ('inbound_no', 'material__name', 'material__code', 
+                     'supplier__name', 'batch_no', 'operator')
+    list_filter = ('inbound_type', 'inbound_date', 'warehouse')
+    date_hierarchy = 'inbound_date'
+    readonly_fields = ('created_at', 'updated_at', 'total_amount')
+    autocomplete_fields = ('material', 'supplier')
+
+    def get_remaining_display(self, obj):
+        return f'{obj.get_remaining_quantity()} / {obj.quantity}'
+    get_remaining_display.short_description = '剩余/总量'
+
+    def get_expiry_status(self, obj):
+        from django.utils.html import format_html
+        if obj.is_expired():
+            return format_html('<span class="badge badge-danger">已过期</span>')
+        elif obj.is_near_expiry():
+            return format_html('<span class="badge badge-warning">临近过期</span>')
+        return format_html('<span class="badge badge-success">正常</span>')
+    get_expiry_status.short_description = '有效期状态'
+    get_expiry_status.allow_tags = True
+
+
+@admin.register(MaterialOutbound)
+class MaterialOutboundAdmin(admin.ModelAdmin):
+    list_display = ('outbound_no', 'material', 'quantity', 'outbound_type', 
+                    'outbound_date', 'batch', 'receiver', 'operator')
+    search_fields = ('outbound_no', 'material__name', 'material__code', 
+                     'receiver', 'operator', 'batch__batch_no')
+    list_filter = ('outbound_type', 'outbound_date', 'warehouse')
+    date_hierarchy = 'outbound_date'
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('material', 'inbound_ref', 'batch')
+
+
+@admin.register(MaterialLoss)
+class MaterialLossAdmin(admin.ModelAdmin):
+    list_display = ('loss_no', 'material', 'quantity', 'loss_reason', 
+                    'loss_date', 'reported_by', 'approved_by')
+    search_fields = ('loss_no', 'material__name', 'material__code', 
+                     'reported_by', 'approved_by', 'description')
+    list_filter = ('loss_reason', 'loss_date', 'warehouse')
+    date_hierarchy = 'loss_date'
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('material', 'inbound_ref')
+
+
+@admin.register(BatchMaterialUsage)
+class BatchMaterialUsageAdmin(admin.ModelAdmin):
+    list_display = ('batch', 'material', 'planned_quantity', 'actual_quantity', 
+                    'unit', 'usage_stage', 'usage_date', 'operator')
+    search_fields = ('batch__batch_no', 'material__name', 'material__code', 'operator')
+    list_filter = ('usage_stage', 'usage_date')
+    date_hierarchy = 'usage_date'
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('batch', 'material', 'outbound')
+
+
+@admin.register(MaterialStockAlert)
+class MaterialStockAlertAdmin(admin.ModelAdmin):
+    list_display = ('material', 'alert_type', 'alert_level', 'alert_title', 
+                    'current_stock', 'threshold', 'alert_status', 
+                    'triggered_at', 'get_duration')
+    search_fields = ('material__name', 'material__code', 'alert_title', 'alert_message')
+    list_filter = ('alert_type', 'alert_level', 'alert_status', 'triggered_at')
+    date_hierarchy = 'triggered_at'
+    readonly_fields = ('created_at',)
+    autocomplete_fields = ('material',)
+
+    def get_duration(self, obj):
+        return obj.get_duration()
+    get_duration.short_description = '处理时长(小时)'
+
+
+@admin.register(MaterialStockHistory)
+class MaterialStockHistoryAdmin(admin.ModelAdmin):
+    list_display = ('material', 'record_date', 'opening_stock', 
+                    'inbound_quantity', 'outbound_quantity', 'loss_quantity', 
+                    'closing_stock')
+    search_fields = ('material__name', 'material__code')
+    list_filter = ('record_date',)
+    date_hierarchy = 'record_date'
+    readonly_fields = ('created_at', 'closing_stock')
+    autocomplete_fields = ('material',)

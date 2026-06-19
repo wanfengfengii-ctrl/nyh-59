@@ -1,0 +1,340 @@
+{% extends 'production/base.html' %}
+
+{% block title %}库存预警 - 智能预警与工艺优化平台{% endblock %}
+
+{% block content %}
+<h2 class="page-title">🚨 库存预警</h2>
+
+<div class="stats-grid" style="grid-template-columns: repeat(7, 1fr);">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total }}</div>
+        <div class="stat-label">预警总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ stats.pending }}</div>
+        <div class="stat-label">待处理</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ stats.processing }}</div>
+        <div class="stat-label">处理中</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #27ae60;">{{ stats.resolved }}</div>
+        <div class="stat-label">已解决</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #e74c3c;">{{ stats.danger }}</div>
+        <div class="stat-label">危险级</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #f39c12;">{{ stats.warning }}</div>
+        <div class="stat-label">警告级</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value" style="color: #3498db;">{{ stats.info }}</div>
+        <div class="stat-label">提示级</div>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <div class="form-group">
+        <label>预警类型</label>
+        <select id="typeFilter">
+            <option value="">全部类型</option>
+            {% for value, label in stock_alert_type_choices %}
+            <option value="{{ value }}" {% if type_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>预警级别</label>
+        <select id="levelFilter">
+            <option value="">全部级别</option>
+            {% for value, label in alert_level_choices %}
+            <option value="{{ value }}" {% if level_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="form-group">
+        <label>预警状态</label>
+        <select id="statusFilter">
+            <option value="">全部状态</option>
+            {% for value, label in alert_status_choices %}
+            <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-primary" onclick="filterAlerts()">筛选</button>
+    <button class="btn btn-warning" onclick="clearFilter()">重置</button>
+</div>
+
+<div class="actions-bar">
+    <button class="btn btn-primary" onclick="runAlertCheck()">🔄 手动检查预警</button>
+</div>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>原料</th>
+                <th>预警类型</th>
+                <th>预警级别</th>
+                <th>预警标题</th>
+                <th>当前库存</th>
+                <th>阈值</th>
+                <th>状态</th>
+                <th>触发时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for alert in alerts %}
+            <tr>
+                <td>{{ alert.material.name|default:"-" }}</td>
+                <td>{{ alert.get_alert_type_display }}</td>
+                <td>
+                    {% if alert.alert_level == 'danger' %}
+                    <span class="badge badge-danger">危险</span>
+                    {% elif alert.alert_level == 'warning' %}
+                    <span class="badge badge-warning">警告</span>
+                    {% else %}
+                    <span class="badge badge-info">提示</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'production:material_stock_alert_detail' alert.pk %}" style="color: #667eea; text-decoration: none; font-weight: 600;">
+                        {{ alert.alert_title }}
+                    </a>
+                </td>
+                <td>{{ alert.current_stock|floatformat:2|default:"-" }}</td>
+                <td>{{ alert.threshold|floatformat:2|default:"-" }}</td>
+                <td>
+                    {% if alert.alert_status == 'pending' %}
+                    <span class="badge badge-danger">待处理</span>
+                    {% elif alert.alert_status == 'processing' %}
+                    <span class="badge badge-warning">处理中</span>
+                    {% elif alert.alert_status == 'resolved' %}
+                    <span class="badge badge-success">已解决</span>
+                    {% else %}
+                    <span class="badge badge-info">已关闭</span>
+                    {% endif %}
+                </td>
+                <td>{{ alert.triggered_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="openHandleModal({{ alert.pk }})">处理</button>
+                    <a href="{% url 'production:material_stock_alert_detail' alert.pk %}" class="btn btn-sm btn-info">详情</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: #999; padding: 30px;">
+                    暂无预警记录
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div id="handleModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>预警处理</h3>
+            <span class="modal-close" onclick="closeHandleModal()">&times;</span>
+        </div>
+        <form id="handleForm" method="post">
+            {% csrf_token %}
+            <input type="hidden" id="alertId" name="alert_id">
+            <div class="form-group">
+                <label>处理动作 *</label>
+                <select id="action" name="action" required>
+                    <option value="">请选择处理动作</option>
+                    <option value="acknowledge">确认</option>
+                    <option value="resolve">解决</option>
+                    <option value="close">关闭</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>处理人 *</label>
+                <input type="text" id="handler" name="handler" required placeholder="请输入处理人姓名">
+            </div>
+            <div class="form-group">
+                <label>处理备注</label>
+                <textarea id="handle_notes" name="handle_notes" rows="3" placeholder="请输入处理备注..."></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button type="button" class="btn btn-warning" onclick="closeHandleModal()">取消</button>
+                <button type="submit" class="btn btn-primary">提交</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: white;
+    margin: 30px auto;
+    padding: 0;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 25px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-close {
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.modal-close:hover {
+    opacity: 0.8;
+}
+
+#handleForm {
+    padding: 25px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterAlerts() {
+    const type = document.getElementById('typeFilter').value;
+    const level = document.getElementById('levelFilter').value;
+    const status = document.getElementById('statusFilter').value;
+    
+    let url = '{% url "production:material_stock_alert_list" %}?';
+    if (type) url += 'type=' + encodeURIComponent(type) + '&';
+    if (level) url += 'level=' + encodeURIComponent(level) + '&';
+    if (status) url += 'status=' + encodeURIComponent(status);
+    
+    window.location.href = url;
+}
+
+function clearFilter() {
+    window.location.href = '{% url "production:material_stock_alert_list" %}';
+}
+
+function runAlertCheck() {
+    if (!confirm('确定要手动检查库存预警吗？')) return;
+    
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '检查中...';
+    
+    fetch("{% url 'production:run_stock_alert_check' %}", {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}',
+        },
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`预警检查完成！\n新增预警: ${data.new_alerts} 条\n总预警数: ${data.total_alerts} 条`);
+            window.location.reload();
+        } else {
+            alert('检查失败: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('检查失败: ' + error);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '🔄 手动检查预警';
+    });
+}
+
+function openHandleModal(alertId) {
+    document.getElementById('handleForm').reset();
+    document.getElementById('alertId').value = alertId;
+    document.getElementById('handleModal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function closeHandleModal() {
+    document.getElementById('handleModal').style.display = 'none';
+    document.body.style.overflow = 'auto';
+}
+
+window.onclick = function(event) {
+    const modal = document.getElementById('handleModal');
+    if (event.target === modal) {
+        closeHandleModal();
+    }
+}
+
+document.getElementById('handleForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const alertId = document.getElementById('alertId').value;
+    
+    fetch('{% url "production:material_stock_alert_list" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': '{{ csrf_token }}'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || '处理成功');
+            window.location.reload();
+        } else {
+            alert('处理失败: ' + (data.error || '未知错误'));
+        }
+    })
+    .catch(error => {
+        alert('处理失败: ' + error);
+    });
+});
+</script>
+{% endblock %}
